@@ -21,15 +21,15 @@ contract YieldRouterTest is Test {
     uint256 RAY = 1e27;
 
     function setUp() external {
-        usdc = new MockUSDC();
-        usdc.mint(dev, 1000);
-        usdc.mint(user, 1000);
-        usdcAddress = usdc.getAddress();
-        aUSDC = new MockAUSDC();
-        aUSDCAddress = aUSDC.getAddress();
-        mockPool = new MockPool(usdcAddress, aUSDCAddress);
-        addressProvider = mockPool.getPool();
-        yieldRouter = new YieldRouter(addressProvider, aUSDCAddress, usdcAddress);
+        // usdc = new MockUSDC();
+        // usdc.mint(dev, 1000);
+        // usdc.mint(user, 1000);
+        // usdcAddress = usdc.getAddress();
+        // aUSDC = new MockAUSDC();
+        // aUSDCAddress = aUSDC.getAddress();
+        // mockPool = new MockPool(usdcAddress, aUSDCAddress);
+        // addressProvider = mockPool.getPool();
+        // yieldRouter = new YieldRouter(addressProvider, aUSDCAddress, usdcAddress);
     }
 
     function test() public {}

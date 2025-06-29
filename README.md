@@ -1,3 +1,3 @@
 ## YieldRouter
 
-Routes all yield from user's yield barring tokens to any permitted address.
+Routes all yield from user's deposited yield-barring tokens to any permitted address.
