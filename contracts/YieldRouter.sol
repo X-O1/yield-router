@@ -9,13 +9,14 @@ import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import "./YieldRouterErrors.sol";
 
-// creates vaults for each account per yield barring token to hold tokens and route its yield.
-// one factory for each yield barring token. YieldRouterFactoryAUSDC YieldRouterFactoryAUSDT
-// using ERC-1167 clones from open zeppelin for cheap vault creation
-// deposits and withdrawls are done in the yield barring token only.
-// yield routers do not manage the principle token
-// index = aave's liquidity index
-// index adjusted = amount / current index
+/**
+ * @title YieldRouter
+ * @notice Routes all yield from user's deposited yield-barring tokens to any permitted address.
+ * @dev Handles deposits and withdrawals in the yield-bearing token only (e.g., aUSDC)
+ * @dev Does not manage or take custody of the underlying principal token (e.g., USDC)
+ * @dev `index` refers to Aave's liquidity index
+ * @dev `indexAdjustedAmount` is computed as `amount / currentIndex`
+ */
 contract YieldRouter {
     using WadRayMath for uint256;
 
