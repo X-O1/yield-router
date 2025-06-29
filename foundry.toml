@@ -1,0 +1,12 @@
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["lib"]
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+remappings = [
+  "@chainlink/=lib/chainlink-brownie-contracts/",
+  "@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+  "forge-std/=lib/forge-std/src/",
+  "@aave-v3-core/=lib/aave-v3-core/contracts/",
+]
