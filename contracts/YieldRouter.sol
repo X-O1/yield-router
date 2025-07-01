@@ -50,8 +50,8 @@ contract YieldRouter is IYieldRouter {
         if (msg.sender != s_owner) revert NOT_OWNER();
         _;
     }
-    // allows access if caller is owner or permitted
 
+    // allows access if caller is owner or permitted
     modifier onlyOwnerAndPermitted() {
         if (!s_permittedYieldAccess[msg.sender] && msg.sender != s_owner) revert NOT_PERMITTED();
         _;
