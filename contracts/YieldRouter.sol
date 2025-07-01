@@ -84,8 +84,7 @@ contract YieldRouter is IYieldRouter {
     /// @inheritdoc IYieldRouter
     function deposit(address _yieldBarringToken, uint256 _principalTokenAmount) external onlyOwner returns (uint256) {
         if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
-        uint256 currentIndex = _getCurrentLiquidityIndex();
-        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(currentIndex);
+        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(_getCurrentLiquidityIndex());
 
         if (indexAdjustedAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) {
             revert TOKEN_ALLOWANCE();
@@ -103,9 +102,8 @@ contract YieldRouter is IYieldRouter {
 
     /// @inheritdoc IYieldRouter
     function withdraw(uint256 _principalTokenAmount) external onlyOwner returns (uint256) {
-        uint256 currentIndex = _getCurrentLiquidityIndex();
         uint256 currentIndexAdjustedBalance = s_accountBalances[s_owner].indexAdjustedBalance;
-        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(currentIndex);
+        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(_getCurrentLiquidityIndex());
 
         if (indexAdjustedAmount > currentIndexAdjustedBalance) revert INSUFFICIENT_BALANCE();
 
@@ -126,8 +124,7 @@ contract YieldRouter is IYieldRouter {
     {
         uint256 currentYield = updateYield();
         uint256 rayPrincipalTokenAmount = _wadToRay(_principalTokenAmount);
-        uint256 currentIndex = _getCurrentLiquidityIndex();
-        uint256 indexAdjustedPrincipalTokenAmount = rayPrincipalTokenAmount.rayDiv(currentIndex);
+        uint256 indexAdjustedPrincipalTokenAmount = rayPrincipalTokenAmount.rayDiv(_getCurrentLiquidityIndex());
 
         if (indexAdjustedPrincipalTokenAmount > currentYield) revert INSUFFICIENT_BALANCE();
 
@@ -143,7 +140,7 @@ contract YieldRouter is IYieldRouter {
     }
 
     // calculates how much yield has accured since deposit
-    function updateYield() public returns (uint256) {
+    function updateYield() private returns (uint256) {
         uint256 currentIndex = _getCurrentLiquidityIndex();
         uint256 currentIndexAdjustedBalance = s_accountBalances[s_owner].indexAdjustedBalance;
         uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(currentIndex);
