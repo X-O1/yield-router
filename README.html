@@ -845,12 +845,15 @@ hue-6-2: #e6c07b
 <p>If you’re using scoped packages or need to prevent an auto-commit:</p>
 <pre><code class="language-bash">forge install X-O1/yield-router --no-commit
 </code></pre>
-<p>Once installed, import the contract in your code like this:</p>
-<pre><code class="language-solidity">import &quot;@YieldRouter/contracts/YieldRouter.sol&quot;;
-</code></pre>
 <p>Make sure your <code>remappings.txt</code> includes the correct alias if needed:</p>
-<pre><code>@YieldRouter/=lib/YieldRouter/
+<pre><code>@YieldRouter/=lib/YieldRouter/contracts
 </code></pre>
+<p>Once installed, import the contract in your code like this:</p>
+<h2 id="use-the-interface">Use the Interface</h2>
+<p>Your protocol doesn't need to interact with the full <code>YieldRouter</code> contract directly. For cleaner integration, import and use the provided interface:</p>
+<pre><code class="language-solidity">import &quot;@YieldRouter/interfaces/IYieldRouter.sol&quot;;
+</code></pre>
+<p>This gives you access to the external functions your protocol needs, with no need to compile the full implementation. Useful for mocks, testing, and cleaner dependency management.</p>
 <hr>
 <h2 id="units">Units</h2>
 <ul>

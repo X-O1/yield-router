@@ -42,17 +42,24 @@ If you’re using scoped packages or need to prevent an auto-commit:
 forge install X-O1/yield-router --no-commit
 ```
 
-Once installed, import the contract in your code like this:
-
-```solidity
-import "@YieldRouter/contracts/YieldRouter.sol";
-```
-
 Make sure your `remappings.txt` includes the correct alias if needed:
 
 ```
-@YieldRouter/=lib/YieldRouter/
+@YieldRouter/=lib/YieldRouter/contracts
 ```
+
+Once installed, import the contract in your code like this:
+
+## Use the Interface 
+
+Your protocol doesn't need to interact with the full `YieldRouter` contract directly. For cleaner integration, import and use the provided interface:
+
+```solidity
+import "@YieldRouter/interfaces/IYieldRouter.sol";
+```
+
+This gives you access to the external functions your protocol needs, with no need to compile the full implementation. Useful for mocks, testing, and cleaner dependency management.
+
 ---
 
 ## Units
