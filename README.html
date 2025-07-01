@@ -815,8 +815,134 @@ hue-6-2: #e6c07b
         
         </head>
         <body class="vscode-body vscode-light">
-            <h2 id="yieldrouter">YieldRouter</h2>
-<p>Routes all yield from user's deposited yield-barring tokens to any permitted address.</p>
+            <h1 id="yieldrouter">YieldRouter</h1>
+<p>YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave), track yield growth via Aave’s liquidity index, and route that yield to permitted addresses.</p>
+<p>Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.</p>
+<p>All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18), matching the decimals of most principal tokens like USDC.</p>
+<hr>
+<h2 id="architecture">Architecture</h2>
+<ul>
+<li><strong>Factory Contract</strong>: Deploys a new YieldRouter for each user using <code>clone()</code>.</li>
+<li><strong>YieldRouter</strong>: A user-specific instance that handles deposits, yield tracking, and routing.</li>
+<li><strong>Owner</strong>: The only address allowed to deposit/withdraw. Can permit others to route yield.</li>
+<li><strong>Permitted Address</strong>: Can call <code>routeYield()</code> to claim yield, but not deposit or withdraw principal.</li>
+</ul>
+<hr>
+<h2 id="features">Features</h2>
+<ul>
+<li>One router per user</li>
+<li>Aave-native yield tracking using the liquidity index</li>
+<li>Principal and yield tracked separately</li>
+<li>Permission system for routing yield</li>
+<li>Minimal interface and event surface</li>
+<li>Proxy-compatible initialization</li>
+</ul>
+<hr>
+<h2 id="installation-forge">Installation (Forge)</h2>
+<p>To install YieldRouter into your Foundry project:</p>
+<pre><code class="language-bash">forge install X-O1/yield-router
+</code></pre>
+<p>If you’re using scoped packages or need to prevent an auto-commit:</p>
+<pre><code class="language-bash">forge install X-O1/yield-router --no-commit
+</code></pre>
+<p>Once installed, import the contract in your code like this:</p>
+<pre><code class="language-solidity">import &quot;@YieldRouter/contracts/YieldRouter.sol&quot;;
+</code></pre>
+<p>Make sure your <code>remappings.txt</code> includes the correct alias if needed:</p>
+<pre><code>@YieldRouter/=lib/YieldRouter/
+</code></pre>
+<hr>
+<h2 id="units">Units</h2>
+<ul>
+<li><strong>WAD (1e18)</strong>: Used for all user-facing input/output values</li>
+<li><strong>RAY (1e27)</strong>: Used for internal accounting and precision math</li>
+</ul>
+<hr>
+<h2 id="workflow">Workflow</h2>
+<h3 id="1-deployment">1. Deployment</h3>
+<ul>
+<li>Factory deploys a clone of the YieldRouter.</li>
+<li>The new clone is initialized with Aave addresses and token configs.</li>
+<li>Ownership is set immediately after.</li>
+</ul>
+<h3 id="2-deposit">2. Deposit</h3>
+<ul>
+<li>Only the owner can call <code>deposit</code>.</li>
+<li><code>_principalTokenAmount</code> is in WAD (e.g., 1000 USDC = 1,000 * 1e18).</li>
+<li>YieldRouter calculates scaled aToken amount using Aave's index and transfers aUSDC from the owner.</li>
+</ul>
+<h3 id="3-yield-accrual">3. Yield Accrual</h3>
+<ul>
+<li>As Aave’s index grows, so does the <code>indexAdjustedBalance</code>.</li>
+<li>The difference between <code>indexAdjustedBalance * index</code> and original <code>depositPrincipal</code> is yield.</li>
+</ul>
+<h3 id="4-route-yield">4. Route Yield</h3>
+<ul>
+<li>Permitted accounts (set by owner) or owner can call <code>routeYield</code>.</li>
+<li>Only accrued yield is sent, not principal.</li>
+</ul>
+<h3 id="5-withdraw">5. Withdraw</h3>
+<ul>
+<li>Owner can withdraw principal in any amount.</li>
+<li>aTokens are transferred out at the correct scaled amount.</li>
+</ul>
+<hr>
+<h2 id="core-contracts">Core Contracts</h2>
+<ul>
+<li><code>YieldRouter.sol</code> — The individual router implementation</li>
+<li><code>IYieldRouter.sol</code> — Public interface</li>
+<li><code>YieldRouterFactory.sol</code> — Deploys clones and sets ownership</li>
+<li><code>Mocks/*.sol</code> — USDC, aUSDC, and Aave pool mocks for local testing</li>
+</ul>
+<hr>
+<h2 id="functions">Functions</h2>
+<h3 id="external">External</h3>
+<ul>
+<li><code>initialize(address addressProvider, address yieldToken, address principalToken)</code></li>
+<li><code>setOwner(address newOwner)</code></li>
+<li><code>deposit(address yieldToken, uint256 principalAmount)</code></li>
+<li><code>withdraw(uint256 principalAmount)</code></li>
+<li><code>routeYield(address destination, uint256 amount)</code></li>
+<li><code>manageYieldAccess(address account, bool permitted)</code></li>
+<li><code>getRouterOwner()</code></li>
+<li><code>getAccountIndexAdjustedBalance()</code></li>
+<li><code>getAccountDepositPrincipal()</code></li>
+<li><code>getAccountIndexAdjustedYield()</code></li>
+<li><code>isAddressPermittedForYieldAccess(address)</code></li>
+</ul>
+<h3 id="internal-helpers">Internal Helpers</h3>
+<ul>
+<li><code>_wadToRay(uint256)</code></li>
+<li><code>_rayToWad(uint256)</code></li>
+<li><code>_getCurrentLiquidityIndex()</code></li>
+</ul>
+<hr>
+<h2 id="access-control">Access Control</h2>
+<ul>
+<li><code>onlyOwner</code>: The user who owns the router</li>
+<li><code>onlyPermitted</code>: Yield-routing addresses</li>
+<li><code>onlyOwnerAndPermitted</code>: Owner or permitted address (used for <code>routeYield</code>)</li>
+</ul>
+<hr>
+<h2 id="events">Events</h2>
+<ul>
+<li><code>Deposit(address account, address token, uint256 amount)</code></li>
+<li><code>Withdraw(address account, address token, uint256 amount)</code></li>
+<li><code>Yield_Routed(address destination, address token, uint256 amount)</code></li>
+</ul>
+<p>All amounts emitted are in <strong>WAD</strong> units for frontend readability.</p>
+<hr>
+<h2 id="testing">Testing</h2>
+<p>Built with Foundry. Includes mock aToken, mock pool, and USDC. Tests for all flows.</p>
+<pre><code class="language-bash">forge install
+forge <span class="hljs-built_in">test</span>
+
+---
+
+<span class="hljs-comment">## License</span>
+
+MIT
+</code></pre>
 
             
             
