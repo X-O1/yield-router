@@ -86,12 +86,8 @@ contract YieldRouter is IYieldRouter {
         if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
         uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(_getCurrentLiquidityIndex());
 
-        if (indexAdjustedAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) {
-            revert TOKEN_ALLOWANCE();
-        }
-        if (!IERC20(_yieldBarringToken).transferFrom(msg.sender, address(this), _rayToWad(indexAdjustedAmount))) {
-            revert DEPOSIT_FAILED();
-        }
+        if (indexAdjustedAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) revert TOKEN_ALLOWANCE();
+        if (!IERC20(_yieldBarringToken).transferFrom(msg.sender, address(this), _rayToWad(indexAdjustedAmount))) revert DEPOSIT_FAILED();
 
         s_accountBalances[msg.sender].indexAdjustedBalance += indexAdjustedAmount;
         s_accountBalances[msg.sender].depositPrincipal += _wadToRay(_principalTokenAmount);
@@ -117,11 +113,7 @@ contract YieldRouter is IYieldRouter {
     }
 
     /// @inheritdoc IYieldRouter
-    function routeYield(address _destination, uint256 _principalTokenAmount)
-        external
-        onlyOwnerAndPermitted
-        returns (uint256)
-    {
+    function routeYield(address _destination, uint256 _principalTokenAmount) external onlyOwnerAndPermitted returns (uint256) {
         uint256 currentYield = updateYield();
         uint256 rayPrincipalTokenAmount = _wadToRay(_principalTokenAmount);
         uint256 indexAdjustedPrincipalTokenAmount = rayPrincipalTokenAmount.rayDiv(_getCurrentLiquidityIndex());
@@ -131,9 +123,7 @@ contract YieldRouter is IYieldRouter {
         s_accountBalances[s_owner].indexAdjustedYield -= indexAdjustedPrincipalTokenAmount;
         s_accountBalances[s_owner].indexAdjustedBalance -= indexAdjustedPrincipalTokenAmount;
 
-        if (!IERC20(i_yieldBarringToken).transfer(_destination, _rayToWad(indexAdjustedPrincipalTokenAmount))) {
-            revert WITHDRAW_FAILED();
-        }
+        if (!IERC20(i_yieldBarringToken).transfer(_destination, _rayToWad(indexAdjustedPrincipalTokenAmount))) revert WITHDRAW_FAILED();
 
         emit Yield_Routed(_destination, i_yieldBarringToken, _rayToWad(indexAdjustedPrincipalTokenAmount));
         return _rayToWad(indexAdjustedPrincipalTokenAmount);
