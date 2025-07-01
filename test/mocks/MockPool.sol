@@ -74,12 +74,13 @@ contract MockPool {
     constructor(address usdcAddress, address ausdcAddress) {
         usdc = MockUSDC(usdcAddress);
         aUSDC = MockAUSDC(ausdcAddress);
-        setLiquidityIndex(address(usdc), 1e27);
+        setLiquidityIndex(1e27);
     }
 
-    function setLiquidityIndex(address asset, uint256 newIndex) public {
+    function setLiquidityIndex(uint256 newIndex) public returns (uint256) {
         require(newIndex > 0, "Index must be > 0");
-        liquidityIndex[asset] = newIndex;
+        liquidityIndex[address(usdc)] = newIndex;
+        return liquidityIndex[address(usdc)];
     }
 
     function getReserveNormalizedIncome(address asset) public view returns (uint256) {
@@ -110,7 +111,7 @@ contract MockPool {
         uint256 index = liquidityIndex[asset];
         require(index > 0, "Index not set");
 
-        uint256 scaledAmount = amount.rayDiv(index);
+        uint256 scaledAmount = _wadToRay(amount).rayDiv(index);
         scaledBalances[asset][onBehalfOf] += scaledAmount;
 
         usdc.transferFrom(msg.sender, address(this), amount);
@@ -141,5 +142,15 @@ contract MockPool {
 
     function getPool() external view returns (address) {
         return address(this);
+    }
+
+    // converts number to RAY units (1e27)
+    function _wadToRay(uint256 _num) private pure returns (uint256) {
+        return _num * 1e9;
+    }
+
+    // converts number from RAY units (1e27) to WAD units (1e18)
+    function _rayToWad(uint256 _num) private pure returns (uint256) {
+        return _num / 1e9;
     }
 }

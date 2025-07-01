@@ -6,6 +6,7 @@ import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesPro
 import {YieldRouter} from "./YieldRouter.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import "./YieldRouterErrors.sol";
+import {IERC20Permit} from "@openzeppelin/token/ERC20/extensions/IERC20Permit.sol";
 
 /**
  * @title YieldRouterFactory
@@ -39,16 +40,16 @@ contract YieldRouterFactory {
     }
 
     function createYieldRouter(address _yieldBarringToken, address _principalToken) external returns (YieldRouter) {
+        address routerOwner = msg.sender;
         if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
         if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
 
-        address routerOwner = msg.sender;
         address clone = Clones.clone(i_implementation);
         YieldRouter yieldRouter = YieldRouter(clone);
+
         yieldRouter.initialize(address(i_addressesProvider), _yieldBarringToken, _principalToken);
         yieldRouter.setOwner(routerOwner);
         s_yieldRouters.push(address(yieldRouter));
-
         return (yieldRouter);
     }
 

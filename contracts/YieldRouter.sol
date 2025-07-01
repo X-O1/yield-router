@@ -12,44 +12,54 @@ import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
  * @title YieldRouter
  * @notice Routes all yield from user's deposited yield-barring tokens to any permitted address.
  * @dev Handles deposits and withdrawals in the yield-bearing token only (e.g., aUSDC)
+ * @dev All deposit and withdrawal `_principalTokenAmount` is in principal token value (e.g., USDC amount)
  * @dev Does not manage or take custody of the underlying principal token (e.g., USDC)
  * @dev `index` refers to Aave's liquidity index
  * @dev `indexAdjustedAmount` is computed as `amount / currentIndex`
+ * @dev `depositPrincipal` is the total underlying token value of the yield barring tokens being deposited (only used to track accrued yield while deposited)
+ * @dev deposits and withdraw amount units should be in WAD (1e18)
+ * @dev All internal accounting and return values are in RAY units (1e27)
  */
 contract YieldRouter is IYieldRouter {
+    // math helpers for wad and ray units
     using WadRayMath for uint256;
+    // aave v3 pool interface
 
     IPool private i_aaveV3Pool;
+    // aave address provider
     IPoolAddressesProvider private i_addressesProvider;
+    // yield-bearing token address (e.g., aUSDC)
     address public i_yieldBarringToken;
+    // principal token address (e.g., USDC)
     address public i_principalToken;
+    // router owner
     address private s_owner;
+    // flag to prevent re-initialization
     bool private s_initialized;
+    // flag to ensure owner can only be set once
     bool private s_ownerSet;
 
+    // tracks all balances for owner
     struct AccountBalances {
-        uint256 principalBalance; // wad
-        uint256 indexAdjustedBalance; // ray
-        uint256 indexAdjustedYield; // ray
+        uint256 indexAdjustedBalance; // ray (1e27)
+        uint256 indexAdjustedYield; // ray (1e27)
+        uint256 depositPrincipal; // ray (1e27)
     }
 
-    // router owner's balances
+    // maps owner to their balances
     mapping(address account => AccountBalances) public s_accountBalances;
-    // accounts granted permission from owner to withdraw yield
+    // maps addresses permitted to route yield
     mapping(address account => bool isPermitted) public s_permittedYieldAccess;
 
+    // restricts access to only owner
     modifier onlyOwner() {
         if (msg.sender != s_owner) revert NOT_OWNER();
         _;
     }
-
-    modifier onlyPermitted() {
-        if (!s_permittedYieldAccess[msg.sender]) revert NOT_PERMITTED();
-        _;
-    }
+    // allows access if caller is owner or permitted
 
     modifier onlyOwnerAndPermitted() {
-        if (!s_permittedYieldAccess[msg.sender] || msg.sender != s_owner) revert NOT_PERMITTED();
+        if (!s_permittedYieldAccess[msg.sender] && msg.sender != s_owner) revert NOT_PERMITTED();
         _;
     }
 
@@ -78,101 +88,124 @@ contract YieldRouter is IYieldRouter {
     }
 
     /// @inheritdoc IYieldRouter
-    function deposit(address _token, uint256 _amount) external onlyOwner returns (uint256) {
-        if (_token != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
-        if (_amount > IERC20(_token).allowance(msg.sender, address(this))) revert TOKEN_ALLOWANCE();
-        if (!IERC20(_token).transferFrom(msg.sender, address(this), _amount)) revert DEPOSIT_FAILED();
-
+    function deposit(address _yieldBarringToken, uint256 _principalTokenAmount) external onlyOwner returns (uint256) {
+        if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
         uint256 currentIndex = _getCurrentLiquidityIndex();
-        uint256 indexAdjustedAmount = _toRay(_amount).rayDiv(currentIndex);
-        uint256 principalAmount = indexAdjustedAmount.rayMul(currentIndex);
-        uint256 wadPrincipalAmount = _fromRay(principalAmount);
+        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(currentIndex);
+
+        if (indexAdjustedAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) {
+            revert TOKEN_ALLOWANCE();
+        }
+        if (!IERC20(_yieldBarringToken).transferFrom(msg.sender, address(this), _rayToWad(indexAdjustedAmount))) {
+            revert DEPOSIT_FAILED();
+        }
 
         s_accountBalances[msg.sender].indexAdjustedBalance += indexAdjustedAmount;
-        s_accountBalances[msg.sender].principalBalance += wadPrincipalAmount;
+        s_accountBalances[msg.sender].depositPrincipal += _wadToRay(_principalTokenAmount);
 
-        emit Deposit(msg.sender, _token, wadPrincipalAmount);
-        return wadPrincipalAmount;
+        emit Deposit(msg.sender, _yieldBarringToken, _rayToWad(indexAdjustedAmount));
+        return _rayToWad(indexAdjustedAmount);
     }
 
     /// @inheritdoc IYieldRouter
-    function withdraw(uint256 _amount) external onlyOwner returns (uint256) {
+    function withdraw(uint256 _principalTokenAmount) external onlyOwner returns (uint256) {
         uint256 currentIndex = _getCurrentLiquidityIndex();
         uint256 currentIndexAdjustedBalance = s_accountBalances[s_owner].indexAdjustedBalance;
+        uint256 indexAdjustedAmount = _wadToRay(_principalTokenAmount).rayDiv(currentIndex);
 
-        //may just check for amount > contact balance for withdraw ***
-        if (_toRay(_amount) > currentIndexAdjustedBalance.rayMul(currentIndex)) revert INSUFFICIENT_BALANCE();
-
-        uint256 indexAdjustedAmount = _toRay(_amount).rayDiv(currentIndex);
-        uint256 principalAmount = indexAdjustedAmount.rayMul(currentIndex);
-        uint256 wadPrincipalAmount = _fromRay(principalAmount);
+        if (indexAdjustedAmount > currentIndexAdjustedBalance) revert INSUFFICIENT_BALANCE();
 
         s_accountBalances[msg.sender].indexAdjustedBalance -= indexAdjustedAmount;
-        s_accountBalances[msg.sender].principalBalance -= wadPrincipalAmount;
+        s_accountBalances[msg.sender].depositPrincipal -= _wadToRay(_principalTokenAmount);
 
-        if (!IERC20(i_yieldBarringToken).transfer(msg.sender, _amount)) revert WITHDRAW_FAILED();
+        if (!IERC20(i_yieldBarringToken).transfer(msg.sender, _rayToWad(indexAdjustedAmount))) revert WITHDRAW_FAILED();
 
-        emit Withdraw(msg.sender, i_yieldBarringToken, wadPrincipalAmount);
-        return wadPrincipalAmount;
+        emit Withdraw(msg.sender, i_yieldBarringToken, _rayToWad(indexAdjustedAmount));
+        return _rayToWad(indexAdjustedAmount);
     }
 
     /// @inheritdoc IYieldRouter
-    function routeYield(address _destination, uint256 _amount) external onlyOwnerAndPermitted returns (uint256) {
-        if (_destination != msg.sender) revert CALLER_MUST_BE_DESTINATION();
-
+    function routeYield(address _destination, uint256 _principalTokenAmount)
+        external
+        onlyOwnerAndPermitted
+        returns (uint256)
+    {
+        uint256 currentYield = updateYield();
+        uint256 rayPrincipalTokenAmount = _wadToRay(_principalTokenAmount);
         uint256 currentIndex = _getCurrentLiquidityIndex();
-        uint256 accountIndexAdjustedYield = _collectYield();
+        uint256 indexAdjustedPrincipalTokenAmount = rayPrincipalTokenAmount.rayDiv(currentIndex);
 
-        if (_toRay(_amount) > accountIndexAdjustedYield.rayMul(currentIndex)) revert INSUFFICIENT_BALANCE();
+        if (indexAdjustedPrincipalTokenAmount > currentYield) revert INSUFFICIENT_BALANCE();
 
-        uint256 indexAdjustedAmount = _toRay(_amount).rayDiv(currentIndex);
-        s_accountBalances[s_owner].indexAdjustedYield -= indexAdjustedAmount;
+        s_accountBalances[s_owner].indexAdjustedYield -= indexAdjustedPrincipalTokenAmount;
+        s_accountBalances[s_owner].indexAdjustedBalance -= indexAdjustedPrincipalTokenAmount;
 
-        if (!IERC20(i_yieldBarringToken).transfer(_destination, _amount)) revert WITHDRAW_FAILED();
+        if (!IERC20(i_yieldBarringToken).transfer(_destination, _rayToWad(indexAdjustedPrincipalTokenAmount))) {
+            revert WITHDRAW_FAILED();
+        }
 
-        emit Yield_Routed(_destination, i_yieldBarringToken, _amount);
-        return _amount;
+        emit Yield_Routed(_destination, i_yieldBarringToken, _rayToWad(indexAdjustedPrincipalTokenAmount));
+        return _rayToWad(indexAdjustedPrincipalTokenAmount);
     }
 
     // calculates how much yield has accured since deposit
-    function _collectYield() private returns (uint256) {
+    // subtracts yield(index adjusted) from `indexAdjustedBalance`
+    function updateYield() public returns (uint256) {
         uint256 currentIndex = _getCurrentLiquidityIndex();
         uint256 currentIndexAdjustedBalance = s_accountBalances[s_owner].indexAdjustedBalance;
-        uint256 currentPricipalBalance = s_accountBalances[s_owner].principalBalance;
-
         uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(currentIndex);
+
+        uint256 currentPricipalBalance = s_accountBalances[s_owner].depositPrincipal;
 
         if (newPricipalBalance > currentPricipalBalance) {
             uint256 yield = newPricipalBalance - currentPricipalBalance;
             uint256 indexAdjustedYield = yield.rayDiv(currentIndex);
 
-            s_accountBalances[s_owner].principalBalance -= _fromRay(yield);
-            s_accountBalances[s_owner].indexAdjustedBalance -= indexAdjustedYield;
-            s_accountBalances[s_owner].indexAdjustedYield += indexAdjustedYield;
+            s_accountBalances[s_owner].indexAdjustedYield = indexAdjustedYield;
         }
 
         return s_accountBalances[s_owner].indexAdjustedYield;
     }
 
-    // fetches aave's v3 pool current liquidity index
+    // fetches aave's v3 pool's current liquidity index
     function _getCurrentLiquidityIndex() private view returns (uint256) {
         uint256 currentIndex = uint256(i_aaveV3Pool.getReserveData(i_principalToken).liquidityIndex);
         if (currentIndex < 1e27) revert INVALID_INDEX();
         return currentIndex;
     }
 
-    // converts number to RAY units (1e27)
-    function _toRay(uint256 _num) private pure returns (uint256) {
-        return _num * 1e27;
+    // WAD units (1e18) => RAY units (1e27)
+    function _wadToRay(uint256 _num) private pure returns (uint256) {
+        return _num * 1e9;
     }
 
-    // converts number from RAY units (1e27) to WAD units (1e18)
-    function _fromRay(uint256 _num) private pure returns (uint256) {
-        return _num / 1e27;
+    // RAY units (1e27) => WAD units (1e18)
+    function _rayToWad(uint256 _num) private pure returns (uint256) {
+        return _num / 1e9;
     }
 
-    // gets router owner
+    // return router owner
     function getRouterOwner() external view returns (address) {
         return s_owner;
+    }
+
+    // return owner's index-adjusted balance (ray)
+    function getAccountIndexAdjustedBalance() external view returns (uint256) {
+        return s_accountBalances[s_owner].indexAdjustedBalance;
+    }
+
+    // return owner's deposit principal (ray)
+    function getAccountDepositPrincipal() external view returns (uint256) {
+        return s_accountBalances[s_owner].depositPrincipal;
+    }
+
+    // update and return owner's index-adjusted yield (ray)
+    function getAccountIndexAdjustedYield() external returns (uint256) {
+        return updateYield();
+    }
+
+    // check if an address is permitted to route yield
+    function isAddressPermittedForYieldAccess(address _address) external view returns (bool) {
+        return s_permittedYieldAccess[_address];
     }
 }
