@@ -22,11 +22,17 @@ interface IYieldRouter {
     /// @param amount The amount withdrawn in WAD
     event Withdraw(address indexed account, address indexed token, uint256 indexed amount);
 
+    // Emitted when any router status is changed
+    /// @param activeStatus The current active status
+    /// @param lockedStatus The current locked status
+    event Router_Status_Changed(bool indexed activeStatus, bool indexed lockedStatus);
+
     /// @notice Emitted when yield is routed to a permitted destination address
     /// @param destination The address receiving the yield
     /// @param token The yield-bearing token
     /// @param amount The yield routed in WAD
-    event Yield_Routed(address indexed destination, address indexed token, uint256 indexed amount);
+    /// @param routerStatus Router status after yield is routed
+    event Yield_Routed(address indexed destination, address token, uint256 indexed amount, bool indexed routerStatus);
 
     /**
      * @notice Initializes the router (used for clones)
@@ -47,32 +53,34 @@ interface IYieldRouter {
      * @notice Grants or revokes permission to route yield
      * @param _account The address to update
      * @param _isPermitted True to grant, false to revoke
+     * @param _amountPermitted Max amount of yield permitted to withdraw
      */
-    function manageYieldAccess(address _account, bool _isPermitted) external;
+    function manageRouterAccess(address _account, bool _isPermitted, uint256 _amountPermitted) external;
 
     /**
      * @notice Deposits yield-bearing tokens into the router
-     * @dev Caller must hold and approve yield barring token. The `_principalTokenAmount` is in WAD (USDC terms).
+     * @dev Caller must hold and approve yield barring token. The `_amountInPrincipalValue` is in WAD (USDC terms).
      * @param _yieldBarringToken The yield-bearing token address (e.g., aUSDC) (must match configured one)
-     * @param _principalTokenAmount The deposit amount in WAD (USDC value)
+     * @param _amountInPrincipalValue The deposit amount in WAD (USDC value)
      * @return The actual amount of yield barring token transferred in WAD
      */
-    function deposit(address _yieldBarringToken, uint256 _principalTokenAmount) external returns (uint256);
+    function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external returns (uint256);
 
     /**
      * @notice Withdraws yield barring token from the router to the owner
-     * @param _principalTokenAmount The amount to withdraw, in WAD (USDC value)
+     * @param _amountInPrincipalValue The amount to withdraw, in WAD (USDC value)
      * @return The amount of yield barring token transferred in WAD
      */
-    function withdraw(uint256 _principalTokenAmount) external returns (uint256);
+    function withdraw(uint256 _amountInPrincipalValue) external returns (uint256);
 
     /**
-     * @notice Routes accrued yield to the caller (must also be permitted)
+     * @notice Routes accrued yield to the caller.
      * @param _destination Must equal `msg.sender`
-     * @param _principalTokenAmount Amount of yield to route in WAD (USDC value)
+     * @param _amountInPrincipalValue Amount of yield to route in WAD (USDC value)
+     * @param _lockRouter // === LOCKS OWNER'S FUNDS UNTIL PERMITTED ADDRESS WITHDRAWS MAX PERMMITED AMOUNT OF YIELD  ===  (Must be called by OWNER — input is ignored otherwise)
      * @return The amount of yield barring token transferred in WAD
      */
-    function routeYield(address _destination, uint256 _principalTokenAmount) external returns (uint256);
+    function routeYield(address _destination, uint256 _amountInPrincipalValue, bool _lockRouter) external returns (uint256);
 
     /**
      * @notice Returns the router owner's address
