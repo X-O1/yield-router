@@ -10,15 +10,9 @@ import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 
 /**
  * @title YieldRouter
- * @notice Routes all yield from user's deposited yield-barring tokens to any permitted address.
- * @dev Handles deposits and withdrawals in the yield-bearing token only (e.g., aUSDC)
- * @dev All deposit and withdrawal `_principalTokenAmount` is in principal token value (e.g., USDC amount)
- * @dev Does not manage or take custody of the underlying principal token (e.g., USDC)
- * @dev `index` refers to Aave's liquidity index
- * @dev `indexAdjustedAmount` is computed as `amount / currentIndex`
- * @dev `depositPrincipal` is the total underlying token value of the yield barring tokens being deposited (only used to track accrued yield while deposited)
- * @dev deposits and withdraw amount units should be in WAD (1e18)
- * @dev All internal accounting and return values are in RAY units (1e27)
+ * @notice Routes yield from a user's deposited yield-bearing tokens to permitted addresses.
+ * @dev Only handles deposits and withdrawals in the yield-bearing token (e.g., aUSDC).
+ * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
 contract YieldRouter is IYieldRouter {
     // math helpers for wad and ray units
@@ -149,7 +143,6 @@ contract YieldRouter is IYieldRouter {
     }
 
     // calculates how much yield has accured since deposit
-    // subtracts yield(index adjusted) from `indexAdjustedBalance`
     function updateYield() public returns (uint256) {
         uint256 currentIndex = _getCurrentLiquidityIndex();
         uint256 currentIndexAdjustedBalance = s_accountBalances[s_owner].indexAdjustedBalance;
