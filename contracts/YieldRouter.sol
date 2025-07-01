@@ -154,12 +154,12 @@ contract YieldRouter is IYieldRouter {
         return currentIndex;
     }
 
-    // WAD units (1e18) => RAY units (1e27)
+    // converts WAD units (1e18) into RAY units (1e27)
     function _wadToRay(uint256 _num) private pure returns (uint256) {
         return _num * 1e9;
     }
 
-    // RAY units (1e27) => WAD units (1e18)
+    // converts RAY units (1e27) into WAD units (1e18)
     function _rayToWad(uint256 _num) private pure returns (uint256) {
         return _num / 1e9;
     }
