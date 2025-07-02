@@ -4,7 +4,7 @@ YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave)
 
 Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.
 
-All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18), matching the decimals of most principal tokens like USDC.
+All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).
 
 ---
 
@@ -13,7 +13,6 @@ All internal math is done in RAY units (1e27) for precision. User-facing amounts
 - **Factory Contract**: Deploys a new YieldRouter for each user using `clone()`.
 - **YieldRouter**: A user-specific instance that handles deposits, yield tracking, and routing.
 - **Owner**: The only address allowed to deposit/withdraw. Can permit others to route yield.
-- **Permitted Address**: Can call `routeYield()` to claim yield, but not deposit or withdraw principal.
 
 ---
 
@@ -23,8 +22,17 @@ All internal math is done in RAY units (1e27) for precision. User-facing amounts
 - Aave-native yield tracking using the liquidity index
 - Principal and yield tracked separately
 - Permission system for routing yield
-- Minimal interface and event surface
+- Router lock functionality to enforce full yield allowance to be paid out before principal can be withdrawn
+- Emergency shutdown controls
 - Proxy-compatible initialization
+
+---
+
+## ⚠️ Yield Lock Warning
+
+Calling `lockRouter()` will **freeze all of the owner's funds** inside the router **until the permitted destination address receives the full amount of its assigned yield allowance**. This is enforced strictly and prevents any principal withdrawals.
+
+> ⚠️ Frontends MUST warn users before allowing `lockRouter()` to be called.
 
 ---
 
@@ -86,12 +94,13 @@ This gives you access to the external functions your protocol needs, with no nee
 - The difference between `indexAdjustedBalance * index` and original `depositPrincipal` is yield.
 
 ### 4. Route Yield
-- Permitted accounts (set by owner) or owner can call `routeYield`.
-- Only accrued yield is sent, not principal.
+- Owner or permitted account calls `activateRouter()`.
+- Yield (not principal) is routed to the current destination address.
+- If locked, router remains locked until full allowance is met.
 
 ### 5. Withdraw
-- Owner can withdraw principal in any amount.
-- aTokens are transferred out at the correct scaled amount.
+- Only allowed when router is **not active** and **not locked**.
+- Owner can withdraw any or all principal at the scaled value.
 
 ---
 
@@ -110,15 +119,19 @@ This gives you access to the external functions your protocol needs, with no nee
 
 - `initialize(address addressProvider, address yieldToken, address principalToken)`
 - `setOwner(address newOwner)`
+- `setFactoryOwner(address factoryOwner)`
 - `deposit(address yieldToken, uint256 principalAmount)`
 - `withdraw(uint256 principalAmount)`
-- `routeYield(address destination, uint256 amount)`
-- `manageYieldAccess(address account, bool permitted)`
+- `activateRouter()`
+- `deactivateRouter()`
+- `lockRouter()`
+- `emergencyRouterShutDown()`
+- `setRouterDestination(address destination)`
+- `manageRouterAccess(address account, bool permitted, uint256 allowance)`
 - `getRouterOwner()`
 - `getAccountIndexAdjustedBalance()`
 - `getAccountDepositPrincipal()`
-- `getAccountIndexAdjustedYield()`
-- `isAddressPermittedForYieldAccess(address)`
+- `isAddressGrantedYieldAccess(address)`
 
 ### Internal Helpers
 
@@ -131,8 +144,10 @@ This gives you access to the external functions your protocol needs, with no nee
 ## Access Control
 
 - `onlyOwner`: The user who owns the router
-- `onlyPermitted`: Yield-routing addresses
-- `onlyOwnerAndPermitted`: Owner or permitted address (used for `routeYield`)
+- `onlyFactoryOwner`: Deployer with emergency shutdown rights
+- `ifRouterNotActive`: Prevents actions when router is active
+- `ifRouterNotLocked`: Prevents actions when router is locked
+- `ifRouterDestinationIsSet`: Enforces destination setup before routing
 
 ---
 
@@ -140,7 +155,8 @@ This gives you access to the external functions your protocol needs, with no nee
 
 - `Deposit(address account, address token, uint256 amount)`
 - `Withdraw(address account, address token, uint256 amount)`
-- `Yield_Routed(address destination, address token, uint256 amount)`
+- `Router_Activated(address destination, address token, uint256 amount, bool status)`
+- `Router_Status_Changed(bool isActive, bool isLocked, address destination)`
 
 All amounts emitted are in **WAD** units for frontend readability.
 
@@ -154,6 +170,7 @@ Built with Foundry. Includes mock aToken, mock pool, and USDC. Tests for all flo
 forge install
 forge test
 ```
+
 ---
 
 ## License

@@ -818,14 +818,13 @@ hue-6-2: #e6c07b
             <h1 id="yieldrouter">YieldRouter</h1>
 <p>YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave), track yield growth via Aave’s liquidity index, and route that yield to permitted addresses.</p>
 <p>Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.</p>
-<p>All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18), matching the decimals of most principal tokens like USDC.</p>
+<p>All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).</p>
 <hr>
 <h2 id="architecture">Architecture</h2>
 <ul>
 <li><strong>Factory Contract</strong>: Deploys a new YieldRouter for each user using <code>clone()</code>.</li>
 <li><strong>YieldRouter</strong>: A user-specific instance that handles deposits, yield tracking, and routing.</li>
 <li><strong>Owner</strong>: The only address allowed to deposit/withdraw. Can permit others to route yield.</li>
-<li><strong>Permitted Address</strong>: Can call <code>routeYield()</code> to claim yield, but not deposit or withdraw principal.</li>
 </ul>
 <hr>
 <h2 id="features">Features</h2>
@@ -834,9 +833,16 @@ hue-6-2: #e6c07b
 <li>Aave-native yield tracking using the liquidity index</li>
 <li>Principal and yield tracked separately</li>
 <li>Permission system for routing yield</li>
-<li>Minimal interface and event surface</li>
+<li>Router lock functionality to enforce full yield allowance to be paid out before principal can be withdrawn</li>
+<li>Emergency shutdown controls</li>
 <li>Proxy-compatible initialization</li>
 </ul>
+<hr>
+<h2 id="️-yield-lock-warning">⚠️ Yield Lock Warning</h2>
+<p>Calling <code>lockRouter()</code> will <strong>freeze all of the owner's funds</strong> inside the router <strong>until the permitted destination address receives the full amount of its assigned yield allowance</strong>. This is enforced strictly and prevents any principal withdrawals.</p>
+<blockquote>
+<p>⚠️ Frontends MUST warn users before allowing <code>lockRouter()</code> to be called.</p>
+</blockquote>
 <hr>
 <h2 id="installation-forge">Installation (Forge)</h2>
 <p>To install YieldRouter into your Foundry project:</p>
@@ -881,13 +887,14 @@ hue-6-2: #e6c07b
 </ul>
 <h3 id="4-route-yield">4. Route Yield</h3>
 <ul>
-<li>Permitted accounts (set by owner) or owner can call <code>routeYield</code>.</li>
-<li>Only accrued yield is sent, not principal.</li>
+<li>Owner or permitted account calls <code>activateRouter()</code>.</li>
+<li>Yield (not principal) is routed to the current destination address.</li>
+<li>If locked, router remains locked until full allowance is met.</li>
 </ul>
 <h3 id="5-withdraw">5. Withdraw</h3>
 <ul>
-<li>Owner can withdraw principal in any amount.</li>
-<li>aTokens are transferred out at the correct scaled amount.</li>
+<li>Only allowed when router is <strong>not active</strong> and <strong>not locked</strong>.</li>
+<li>Owner can withdraw any or all principal at the scaled value.</li>
 </ul>
 <hr>
 <h2 id="core-contracts">Core Contracts</h2>
@@ -903,15 +910,19 @@ hue-6-2: #e6c07b
 <ul>
 <li><code>initialize(address addressProvider, address yieldToken, address principalToken)</code></li>
 <li><code>setOwner(address newOwner)</code></li>
+<li><code>setFactoryOwner(address factoryOwner)</code></li>
 <li><code>deposit(address yieldToken, uint256 principalAmount)</code></li>
 <li><code>withdraw(uint256 principalAmount)</code></li>
-<li><code>routeYield(address destination, uint256 amount)</code></li>
-<li><code>manageYieldAccess(address account, bool permitted)</code></li>
+<li><code>activateRouter()</code></li>
+<li><code>deactivateRouter()</code></li>
+<li><code>lockRouter()</code></li>
+<li><code>emergencyRouterShutDown()</code></li>
+<li><code>setRouterDestination(address destination)</code></li>
+<li><code>manageRouterAccess(address account, bool permitted, uint256 allowance)</code></li>
 <li><code>getRouterOwner()</code></li>
 <li><code>getAccountIndexAdjustedBalance()</code></li>
 <li><code>getAccountDepositPrincipal()</code></li>
-<li><code>getAccountIndexAdjustedYield()</code></li>
-<li><code>isAddressPermittedForYieldAccess(address)</code></li>
+<li><code>isAddressGrantedYieldAccess(address)</code></li>
 </ul>
 <h3 id="internal-helpers">Internal Helpers</h3>
 <ul>
@@ -923,15 +934,18 @@ hue-6-2: #e6c07b
 <h2 id="access-control">Access Control</h2>
 <ul>
 <li><code>onlyOwner</code>: The user who owns the router</li>
-<li><code>onlyPermitted</code>: Yield-routing addresses</li>
-<li><code>onlyOwnerAndPermitted</code>: Owner or permitted address (used for <code>routeYield</code>)</li>
+<li><code>onlyFactoryOwner</code>: Deployer with emergency shutdown rights</li>
+<li><code>ifRouterNotActive</code>: Prevents actions when router is active</li>
+<li><code>ifRouterNotLocked</code>: Prevents actions when router is locked</li>
+<li><code>ifRouterDestinationIsSet</code>: Enforces destination setup before routing</li>
 </ul>
 <hr>
 <h2 id="events">Events</h2>
 <ul>
 <li><code>Deposit(address account, address token, uint256 amount)</code></li>
 <li><code>Withdraw(address account, address token, uint256 amount)</code></li>
-<li><code>Yield_Routed(address destination, address token, uint256 amount)</code></li>
+<li><code>Router_Activated(address destination, address token, uint256 amount, bool status)</code></li>
+<li><code>Router_Status_Changed(bool isActive, bool isLocked, address destination)</code></li>
 </ul>
 <p>All amounts emitted are in <strong>WAD</strong> units for frontend readability.</p>
 <hr>
