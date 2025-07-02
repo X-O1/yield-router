@@ -10,7 +10,7 @@ import "./YieldRouterErrors.sol";
 
 /**
  * @title YieldRouter
- * @notice Routes yield from a user's deposited yield-bearing tokens to addresses granted yield access.
+ * @notice Routes yield from a user's deposited yield-bearing tokens to addresses granted router access.
  * @dev Only handles deposits and withdrawals in the yield-bearing token (e.g., aUSDC).
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
@@ -46,11 +46,11 @@ contract YieldRouter is IYieldRouter {
         uint256 principalValue; // ray (1e27)
     }
 
-    // status and withdrawn balances of addresses granted yield access
-    struct YieldAccess {
+    // status and withdrawn balances of addresses granted router access
+    struct RouterAccessRecords {
         bool grantedYieldAccess;
         uint256 yieldAllowance; // ray (1e27)
-        uint256 yieldWithdrawn; // ray (1e27)
+        uint256 yieldRecieved; // ray (1e27)
     }
 
     // status of router
@@ -63,8 +63,8 @@ contract YieldRouter is IYieldRouter {
     // maps owner to their balances
     mapping(address owner => OwnerBalances) public s_ownerBalances;
 
-    // maps each address granted yield access to their yield withdrawal limit and tracks how much yield they’ve withdrawn.
-    mapping(address addressGrantedAccess => YieldAccess) public s_yieldAccess;
+    // maps each address granted router access to their yield allowance limit and tracks how much yield they’ve recieved.
+    mapping(address addressGrantedAccess => RouterAccessRecords) public s_routerAccessRecords;
 
     // restricts access to router factory owner
     modifier onlyFactoryOwner() {
@@ -130,13 +130,13 @@ contract YieldRouter is IYieldRouter {
 
     /// @inheritdoc IYieldRouter
     function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _yieldAllowance) external onlyOwner {
-        _grantedYieldAccess ? s_yieldAccess[_account].grantedYieldAccess = true : s_yieldAccess[_account].grantedYieldAccess = false;
-        s_yieldAccess[_account].yieldAllowance = _yieldAllowance;
+        _grantedYieldAccess ? s_routerAccessRecords[_account].grantedYieldAccess = true : s_routerAccessRecords[_account].grantedYieldAccess = false;
+        _grantedYieldAccess ? s_routerAccessRecords[_account].yieldAllowance = _yieldAllowance : s_routerAccessRecords[_account].yieldAllowance = 0;
     }
 
     /// @inheritdoc IYieldRouter
     function setRouterDestination(address _destination) external onlyOwner {
-        if (!s_yieldAccess[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
+        if (!s_routerAccessRecords[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
 
         s_routerStatus.currentDestination = _destination;
@@ -185,9 +185,21 @@ contract YieldRouter is IYieldRouter {
 
         s_ownerBalances[s_owner].indexAdjustedYield -= rayFinalRouteAmount;
         s_ownerBalances[s_owner].indexAdjustedBalance -= rayFinalRouteAmount;
-        s_yieldAccess[destination].yieldWithdrawn += rayFinalRouteAmount;
+        s_routerAccessRecords[destination].yieldRecieved += rayFinalRouteAmount;
 
-        _updateRouterStatus(destination);
+        // update router status based on available yield allowance
+        uint256 updatedRayRemainingYieldAllowance = _getRemainingYieldAllowance(destination);
+
+        if (updatedRayRemainingYieldAllowance == 0) {
+            s_routerStatus.isActive = false;
+            s_routerStatus.currentDestination = address(0);
+            s_routerAccessRecords[destination].yieldAllowance = 0;
+        }
+        if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
+            s_routerStatus.isLocked = false;
+            s_routerStatus.currentDestination = address(0);
+            s_routerAccessRecords[destination].yieldAllowance = 0;
+        }
 
         if (!IERC20(i_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
@@ -228,20 +240,6 @@ contract YieldRouter is IYieldRouter {
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
 
-    // helper for `activateRouter()` to update router status based on yield allowance being met
-    function _updateRouterStatus(address _destination) private {
-        uint256 updatedRayRemainingYieldAllowance = _getRemainingYieldAllowance(_destination);
-
-        if (updatedRayRemainingYieldAllowance == 0) {
-            s_routerStatus.isActive = false;
-            s_routerStatus.currentDestination = address(0);
-        }
-        if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
-            s_routerStatus.isLocked = false;
-            s_routerStatus.currentDestination = address(0);
-        }
-    }
-
     // calculates how much yield has accured since deposit
     function _updateYield() private returns (uint256) {
         uint256 currentIndex = _getCurrentLiquidityIndex();
@@ -256,6 +254,20 @@ contract YieldRouter is IYieldRouter {
             s_ownerBalances[s_owner].indexAdjustedYield = indexAdjustedYield;
         }
         return s_ownerBalances[s_owner].indexAdjustedYield;
+    }
+
+    // check permitted address withdraw limit status
+    function _getRemainingYieldAllowance(address _permittedAddress) private view returns (uint256) {
+        uint256 maxAmount = s_routerAccessRecords[_permittedAddress].yieldAllowance;
+        uint256 withdrawnAmount = s_routerAccessRecords[_permittedAddress].yieldRecieved;
+        uint256 availableAmount;
+
+        if (withdrawnAmount > 0 && withdrawnAmount < maxAmount) {
+            availableAmount = maxAmount - withdrawnAmount;
+            return availableAmount;
+        } else {
+            return maxAmount;
+        }
     }
 
     // fetches aave's v3 pool's current liquidity index
@@ -281,31 +293,32 @@ contract YieldRouter is IYieldRouter {
     }
 
     // return owner's index-adjusted balance (ray)
-    function getAccountIndexAdjustedBalance() external view returns (uint256) {
+    function getOwnerIndexAdjustedBalance() external view returns (uint256) {
         return s_ownerBalances[s_owner].indexAdjustedBalance;
     }
 
+    // return owner's index-adjusted yield (ray)
+    function getOwnerIndexAdjustedYield() external view returns (uint256) {
+        return s_ownerBalances[s_owner].indexAdjustedYield;
+    }
+
+    // return address's max yield allowance (ray)
+    function getYieldAllowance(address _address) external view returns (uint256) {
+        return s_routerAccessRecords[_address].yieldAllowance;
+    }
+
+    // return amount of yield address has recieved (ray)
+    function getYieldRecieved(address _address) external view returns (uint256) {
+        return s_routerAccessRecords[_address].yieldRecieved;
+    }
+
     // return owner's deposit principal (ray)
-    function getAccountDepositPrincipal() external view returns (uint256) {
+    function getOwnerPrincipalValue() external view returns (uint256) {
         return s_ownerBalances[s_owner].principalValue;
     }
 
-    // check if an address has been granted yield access
-    function isAddressGrantedYieldAccess(address _address) external view returns (bool) {
-        return s_yieldAccess[_address].grantedYieldAccess;
-    }
-
-    // check permitted address withdraw limit status
-    function _getRemainingYieldAllowance(address _permittedAddress) internal view returns (uint256) {
-        uint256 maxAmount = s_yieldAccess[_permittedAddress].yieldAllowance;
-        uint256 withdrawnAmount = s_yieldAccess[_permittedAddress].yieldWithdrawn;
-        uint256 availableAmount;
-
-        if (withdrawnAmount > 0 && withdrawnAmount < maxAmount) {
-            availableAmount = maxAmount - withdrawnAmount;
-            return availableAmount;
-        } else {
-            return maxAmount;
-        }
+    // check if an address has been granted router access
+    function isAddressGrantedRouterAccess(address _address) external view returns (bool) {
+        return s_routerAccessRecords[_address].grantedYieldAccess;
     }
 }

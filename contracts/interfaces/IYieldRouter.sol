@@ -124,18 +124,18 @@ interface IYieldRouter {
      * @notice Returns the owner's index-adjusted balance
      * @return Balance in RAY (1e27)
      */
-    function getAccountIndexAdjustedBalance() external view returns (uint256);
+    function getOwnerIndexAdjustedBalance() external view returns (uint256);
 
     /**
      * @notice Returns the owner's original deposited principal
      * @return Principal in RAY (1e27)
      */
-    function getAccountDepositPrincipal() external view returns (uint256);
+    function getOwnerPrincipalValue() external view returns (uint256);
 
     /**
      * @notice Checks if an address has been granted yield access
      * @param _address Address to check
      * @return True if access is granted, false otherwise
      */
-    function isAddressGrantedYieldAccess(address _address) external view returns (bool);
+    function isAddressGrantedRouterAccess(address _address) external view returns (bool);
 }
