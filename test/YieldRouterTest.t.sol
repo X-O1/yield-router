@@ -140,11 +140,11 @@ contract YieldRouterTest is Test {
 
         // index increases adding yield
         vm.prank(owner);
-        mockPool.setLiquidityIndex(2e27);
+        mockPool.setLiquidityIndex(2 * RAY);
 
         // owner grants external address router access and sets max yield allowance
         vm.prank(owner);
-        yieldRouter.manageRouterAccess(dev, true, 2000e24);
+        yieldRouter.manageRouterAccess(dev, true, 2000 * WAD);
 
         // owner sets end destination of router
         vm.prank(owner);
@@ -154,7 +154,33 @@ contract YieldRouterTest is Test {
         vm.prank(owner);
         yieldRouter.activateRouter();
 
-        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500e25);
-        assertEq(yieldRouter.getYieldAllowance(dev), 1000e24);
+        // check balances have been updated
+        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500 * RAY);
+        assertEq(yieldRouter.getOwnerPrincipalYield(), 0);
+        assertEq(yieldRouter.getYieldAllowanceInPrincipalValue(dev), 1000 * RAY);
+
+        // check router status has been updated
+        assertEq(yieldRouter.getRouterIsActive(), true);
+        assertEq(yieldRouter.getRouterIsLocked(), false);
+        assertEq(yieldRouter.getRouterCurrentDestination(), dev);
+
+        // // index increases adding more yield
+        // vm.prank(owner);
+        // mockPool.setLiquidityIndex(21 * RAY);
+
+        // // router sends second yield payment
+        // vm.prank(owner);
+        // yieldRouter.activateRouter();
+        // assertEq(yieldRouter.getOwnerPrincipalYield(), 2000);
+
+        // // check balances have been updated
+        // assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500 * RAY);
+        // assertEq(yieldRouter.getOwnerPrincipalYield(), 1000);
+        // assertEq(yieldRouter.getYieldAllowanceInPrincipalValue(dev), 0 * RAY);
+
+        // // check router status has been updated
+        // assertEq(yieldRouter.getRouterIsActive(), true);
+        // assertEq(yieldRouter.getRouterIsLocked(), false);
+        // assertEq(yieldRouter.getRouterCurrentDestination(), dev);
     }
 }

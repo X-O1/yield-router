@@ -42,14 +42,14 @@ contract YieldRouter is IYieldRouter {
     // balances for owner
     struct OwnerBalances {
         uint256 indexAdjustedBalance; // ray (1e27)
-        uint256 indexAdjustedYield; // ray (1e27)
-        uint256 principalValue; // ray (1e27)
+        uint256 principalBalance; // ray (1e27)
+        uint256 principalYield; // ray (1e27)
     }
 
     // status and withdrawn balances of addresses granted router access
     struct RouterAccessRecords {
         bool grantedYieldAccess;
-        uint256 yieldAllowance; // ray (1e27)
+        uint256 principalYieldAllowance; // (in prinicipal value e.g., USDC) (ray (1e27))
     }
 
     // status of router
@@ -128,9 +128,12 @@ contract YieldRouter is IYieldRouter {
     }
 
     /// @inheritdoc IYieldRouter
-    function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _yieldAllowance) external onlyOwner {
+    function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
         _grantedYieldAccess ? s_routerAccessRecords[_account].grantedYieldAccess = true : s_routerAccessRecords[_account].grantedYieldAccess = false;
-        _grantedYieldAccess ? s_routerAccessRecords[_account].yieldAllowance = _yieldAllowance : s_routerAccessRecords[_account].yieldAllowance = 0;
+
+        _grantedYieldAccess
+            ? s_routerAccessRecords[_account].principalYieldAllowance = _wadToRay(_principalYieldAllowance)
+            : s_routerAccessRecords[_account].principalYieldAllowance = 0;
     }
 
     /// @inheritdoc IYieldRouter
@@ -174,21 +177,28 @@ contract YieldRouter is IYieldRouter {
     function activateRouter() external ifRouterDestinationIsSet ifRouterActive returns (uint256) {
         s_routerStatus.isActive = true;
 
+        uint256 currentIndex = _getCurrentLiquidityIndex();
         address destination = s_routerStatus.currentDestination;
-        uint256 rayCurrentYield = _updateYield();
-        uint256 rayCurrentYieldAllowance = s_routerAccessRecords[destination].yieldAllowance;
-        uint256 rayFinalRouteAmount;
+        uint256 rayCurrentPrincipalYield = _updatePrincipalYield(currentIndex);
+        uint256 rayCurrentPrincipalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
+        uint256 rayIndexAdjustedCurrentPrincipalYield = rayCurrentPrincipalYield.rayDiv(currentIndex);
+        uint256 rayIndexAdjustedCurrentPrincipalYieldAllowance = rayCurrentPrincipalYieldAllowance.rayDiv(currentIndex);
+        uint256 rayFinalIndexAdjustedRouteAmount;
 
-        rayCurrentYield < rayCurrentYieldAllowance ? rayFinalRouteAmount = rayCurrentYield : rayFinalRouteAmount = rayCurrentYieldAllowance;
-        uint256 wadFinalRouteAmount = _rayToWad(rayFinalRouteAmount);
+        rayCurrentPrincipalYield < rayCurrentPrincipalYieldAllowance
+            ? rayFinalIndexAdjustedRouteAmount = rayIndexAdjustedCurrentPrincipalYield
+            : rayFinalIndexAdjustedRouteAmount = rayIndexAdjustedCurrentPrincipalYieldAllowance;
 
-        s_ownerBalances[s_owner].indexAdjustedYield -= rayFinalRouteAmount;
-        s_ownerBalances[s_owner].indexAdjustedBalance -= rayFinalRouteAmount;
-        s_routerAccessRecords[destination].yieldAllowance -= rayFinalRouteAmount;
+        uint256 rayFinalPrincipalYieldRouteAmount = rayFinalIndexAdjustedRouteAmount.rayMul(currentIndex);
+
+        s_ownerBalances[s_owner].indexAdjustedBalance -= rayFinalIndexAdjustedRouteAmount;
+        s_ownerBalances[s_owner].principalYield -= rayFinalPrincipalYieldRouteAmount;
+        s_routerAccessRecords[destination].principalYieldAllowance -= rayFinalPrincipalYieldRouteAmount;
 
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
+        uint256 wadFinalRouteAmount = _rayToWad(rayFinalIndexAdjustedRouteAmount);
         if (!IERC20(i_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
         emit Router_Activated(destination, i_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
@@ -206,7 +216,7 @@ contract YieldRouter is IYieldRouter {
         if (!IERC20(_yieldBarringToken).transferFrom(msg.sender, address(this), _rayToWad(indexAdjustedPrincipalAmount))) revert DEPOSIT_FAILED();
 
         s_ownerBalances[msg.sender].indexAdjustedBalance += indexAdjustedPrincipalAmount;
-        s_ownerBalances[msg.sender].principalValue += _wadToRay(_amountInPrincipalValue);
+        s_ownerBalances[msg.sender].principalBalance += _wadToRay(_amountInPrincipalValue);
 
         emit Deposit(msg.sender, _yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
         return _rayToWad(indexAdjustedPrincipalAmount);
@@ -220,7 +230,7 @@ contract YieldRouter is IYieldRouter {
         if (indexAdjustedPrincipalAmount > currentIndexAdjustedBalance) revert INSUFFICIENT_BALANCE();
 
         s_ownerBalances[msg.sender].indexAdjustedBalance -= indexAdjustedPrincipalAmount;
-        s_ownerBalances[msg.sender].principalValue -= _wadToRay(_amountInPrincipalValue);
+        s_ownerBalances[msg.sender].principalBalance -= _wadToRay(_amountInPrincipalValue);
 
         if (!IERC20(i_yieldBarringToken).transfer(msg.sender, _rayToWad(indexAdjustedPrincipalAmount))) revert WITHDRAW_FAILED();
 
@@ -230,7 +240,7 @@ contract YieldRouter is IYieldRouter {
 
     // helper for `activateRouter()` to update router status based on updated destination's yield allowance
     function _updateRouterStatus(address _destination) private {
-        uint256 updatedRayRemainingYieldAllowance = s_routerAccessRecords[_destination].yieldAllowance;
+        uint256 updatedRayRemainingYieldAllowance = s_routerAccessRecords[_destination].principalYieldAllowance;
 
         if (updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isActive = false;
@@ -243,19 +253,17 @@ contract YieldRouter is IYieldRouter {
     }
 
     // calculates how much yield has accured since deposit
-    function _updateYield() private returns (uint256) {
-        uint256 currentIndex = _getCurrentLiquidityIndex();
+    function _updatePrincipalYield(uint256 _currentIndex) private returns (uint256) {
         uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
-        uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(currentIndex);
+        uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(_currentIndex);
 
-        uint256 currentPricipalBalance = s_ownerBalances[s_owner].principalValue;
+        uint256 currentPricipalBalance = s_ownerBalances[s_owner].principalBalance;
 
         if (newPricipalBalance > currentPricipalBalance) {
-            uint256 yield = newPricipalBalance - currentPricipalBalance;
-            uint256 indexAdjustedYield = yield.rayDiv(currentIndex);
-            s_ownerBalances[s_owner].indexAdjustedYield = indexAdjustedYield;
+            uint256 newYield = newPricipalBalance - currentPricipalBalance;
+            s_ownerBalances[s_owner].principalYield = newYield;
         }
-        return s_ownerBalances[s_owner].indexAdjustedYield;
+        return s_ownerBalances[s_owner].principalYield;
     }
 
     // fetches aave's v3 pool's current liquidity index
@@ -280,24 +288,39 @@ contract YieldRouter is IYieldRouter {
         return s_owner;
     }
 
+    // returns whether the router is currently active.
+    function getRouterIsActive() external view returns (bool) {
+        return s_routerStatus.isActive;
+    }
+
+    // returns whether the router is currently locked.
+    function getRouterIsLocked() external view returns (bool) {
+        return s_routerStatus.isLocked;
+    }
+
+    // returns the current destination address for routed yield.
+    function getRouterCurrentDestination() external view returns (address) {
+        return s_routerStatus.currentDestination;
+    }
+
     // return owner's index-adjusted balance (ray)
     function getOwnerIndexAdjustedBalance() external view returns (uint256) {
         return s_ownerBalances[s_owner].indexAdjustedBalance;
     }
 
     // return owner's index-adjusted yield (ray)
-    function getOwnerIndexAdjustedYield() external view returns (uint256) {
-        return s_ownerBalances[s_owner].indexAdjustedYield;
+    function getOwnerPrincipalYield() external view returns (uint256) {
+        return s_ownerBalances[s_owner].principalYield;
     }
 
-    // return address's current yield allowance (ray)
-    function getYieldAllowance(address _address) external view returns (uint256) {
-        return s_routerAccessRecords[_address].yieldAllowance;
+    // return address's current yield allowance (prinicipal value e.g., USDC) (ray)
+    function getYieldAllowanceInPrincipalValue(address _address) external view returns (uint256) {
+        return s_routerAccessRecords[_address].principalYieldAllowance;
     }
 
     // return owner's deposit principal (ray)
     function getOwnerPrincipalValue() external view returns (uint256) {
-        return s_ownerBalances[s_owner].principalValue;
+        return s_ownerBalances[s_owner].principalBalance;
     }
 
     // check if an address has been granted router access
