@@ -49,6 +49,7 @@ contract YieldRouterFactory {
 
         yieldRouter.initialize(address(i_addressesProvider), _yieldBarringToken, _principalToken);
         yieldRouter.setOwner(routerOwner);
+        yieldRouter.setFactoryOwner(i_factoryOwner);
         s_yieldRouters.push(address(yieldRouter));
         return (yieldRouter);
     }
