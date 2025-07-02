@@ -18,8 +18,8 @@ contract YieldRouter is IYieldRouter {
     // math helpers for wad and ray units
     using WadRayMath for uint256;
 
-    // aave v3 pool interface
-    IPool private i_aaveV3Pool;
+    // aave pool interface
+    IPool private i_aavePool;
     // aave address provider
     IPoolAddressesProvider private i_addressesProvider;
     // yield-bearing token address (e.g., aUSDC)
@@ -81,6 +81,15 @@ contract YieldRouter is IYieldRouter {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
         _;
     }
+
+    // denies access if router is not active
+    // ensures only owner can call the router while its inactive
+    // once active any can call
+    modifier ifRouterActive() {
+        if (msg.sender != s_owner)
+            if (!s_routerStatus.isActive) revert ROUTER_ACTIVE();
+        _;
+    }
     // denies access if router is locked
     modifier ifRouterNotLocked() {
         if (s_routerStatus.isLocked) revert ROUTER_LOCKED();
@@ -98,7 +107,7 @@ contract YieldRouter is IYieldRouter {
         s_initialized = true;
 
         i_addressesProvider = IPoolAddressesProvider(_addressProvider);
-        i_aaveV3Pool = IPool(i_addressesProvider.getPool());
+        i_aavePool = IPool(i_addressesProvider.getPool());
         i_yieldBarringToken = _yieldBarringToken;
         i_principalToken = _prinicalToken;
     }
@@ -163,7 +172,7 @@ contract YieldRouter is IYieldRouter {
     }
 
     /// @inheritdoc IYieldRouter
-    function activateRouter() external ifRouterDestinationIsSet returns (uint256) {
+    function activateRouter() external ifRouterDestinationIsSet ifRouterActive returns (uint256) {
         s_routerStatus.isActive = true;
 
         address destination = s_routerStatus.currentDestination;
@@ -251,7 +260,7 @@ contract YieldRouter is IYieldRouter {
 
     // fetches aave's v3 pool's current liquidity index
     function _getCurrentLiquidityIndex() private view returns (uint256) {
-        uint256 currentIndex = uint256(i_aaveV3Pool.getReserveData(i_principalToken).liquidityIndex);
+        uint256 currentIndex = uint256(i_aavePool.getReserveData(i_principalToken).liquidityIndex);
         if (currentIndex < 1e27) revert INVALID_INDEX();
         return currentIndex;
     }
