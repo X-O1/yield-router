@@ -76,7 +76,6 @@ contract YieldRouter is IYieldRouter {
         if (msg.sender != s_owner) revert NOT_OWNER();
         _;
     }
-
     // denies access if router is active
     modifier ifRouterNotActive() {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
@@ -87,7 +86,6 @@ contract YieldRouter is IYieldRouter {
         if (s_routerStatus.isLocked) revert ROUTER_LOCKED();
         _;
     }
-
     // denies access if router destination is not set
     modifier ifRouterDestinationIsSet() {
         if (s_routerStatus.currentDestination == address(0)) revert ROUTER_DESTIONATION_NOT_SET();
