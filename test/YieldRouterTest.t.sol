@@ -144,7 +144,7 @@ contract YieldRouterTest is Test {
 
         // owner grants external address router access and sets max yield allowance
         vm.prank(owner);
-        yieldRouter.manageRouterAccess(dev, true, 2000 * WAD);
+        yieldRouter.manageRouterAccess(dev, true, 2000e24);
 
         // owner sets end destination of router
         vm.prank(owner);
@@ -154,7 +154,7 @@ contract YieldRouterTest is Test {
         vm.prank(owner);
         yieldRouter.activateRouter();
 
-        // assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500e25);
-        // assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500e25);
+        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 500e25);
+        assertEq(yieldRouter.getYieldAllowance(dev), 1000e24);
     }
 }
