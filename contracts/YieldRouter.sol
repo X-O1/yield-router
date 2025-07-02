@@ -113,6 +113,7 @@ contract YieldRouter is IYieldRouter {
         return s_owner;
     }
 
+    /// @inheritdoc IYieldRouter
     function setFactoryOwner(address _factoryOwner) external returns (address) {
         if (s_factoryOwnerSet) revert ALREADY_SET();
         s_factoryOwnerSet = true;
@@ -126,10 +127,7 @@ contract YieldRouter is IYieldRouter {
         s_yieldAccess[_account].yieldAllowance = _yieldAllowance;
     }
 
-    // sets destination for where yield will be routed to
-    // _destination must have been granted yield access
-    // router must be deactivated to change destination
-    // router can not activate without setting destination
+    /// @inheritdoc IYieldRouter
     function setRouterDestination(address _destination) external onlyOwner {
         if (!s_yieldAccess[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
@@ -138,9 +136,7 @@ contract YieldRouter is IYieldRouter {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    // deactivates router
-    // principal balance can NOT be withdrawn if yield router is active
-    // router must be unlocked to deactivate
+    /// @inheritdoc IYieldRouter
     function deactivateRouter() external onlyOwner ifRouterNotLocked {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         s_routerStatus.isActive = false;
@@ -194,20 +190,6 @@ contract YieldRouter is IYieldRouter {
         return wadFinalRouteAmount;
     }
 
-    // helper for `activateRouter()` to update router status based on yield allowance being met
-    function _updateRouterStatus(address _destination) private {
-        uint256 updatedRayRemainingYieldAllowance = _getRemainingYieldAllowance(_destination);
-
-        if (updatedRayRemainingYieldAllowance == 0) {
-            s_routerStatus.isActive = false;
-            s_routerStatus.currentDestination = address(0);
-        }
-        if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
-            s_routerStatus.isLocked = false;
-            s_routerStatus.currentDestination = address(0);
-        }
-    }
-
     /// @inheritdoc IYieldRouter
     function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
         if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
@@ -237,6 +219,20 @@ contract YieldRouter is IYieldRouter {
 
         emit Withdraw(msg.sender, i_yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
         return _rayToWad(indexAdjustedPrincipalAmount);
+    }
+
+    // helper for `activateRouter()` to update router status based on yield allowance being met
+    function _updateRouterStatus(address _destination) private {
+        uint256 updatedRayRemainingYieldAllowance = _getRemainingYieldAllowance(_destination);
+
+        if (updatedRayRemainingYieldAllowance == 0) {
+            s_routerStatus.isActive = false;
+            s_routerStatus.currentDestination = address(0);
+        }
+        if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
+            s_routerStatus.isLocked = false;
+            s_routerStatus.currentDestination = address(0);
+        }
     }
 
     // calculates how much yield has accured since deposit
