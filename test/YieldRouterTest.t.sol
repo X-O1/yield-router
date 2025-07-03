@@ -311,5 +311,6 @@ contract YieldRouterTest is Test {
         vm.prank(routerOwner);
         yieldRouter.withdraw(500 * WAD);
         assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 333333333333333333333333333333);
+        assertEq(aUSDC.balanceOf(routerOwner), 333333333333333333333);
     }
 }
