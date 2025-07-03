@@ -133,6 +133,37 @@ interface IYieldRouter {
     function getOwnerPrincipalValue() external view returns (uint256);
 
     /**
+     * @notice Returns the owner's principal yield (unrouted)
+     * @return Yield in RAY (1e27)
+     */
+    function getOwnerPrincipalYield() external view returns (uint256);
+
+    /**
+     * @notice Returns the yield allowance (in principal value) for a permitted address
+     * @param _address The address to query
+     * @return Yield allowance in RAY
+     */
+    function getYieldAllowanceInPrincipalValue(address _address) external view returns (uint256);
+
+    /**
+     * @notice Returns whether the router is currently active
+     * @return True if router is active, false otherwise
+     */
+    function getRouterIsActive() external view returns (bool);
+
+    /**
+     * @notice Returns whether the router is currently locked
+     * @return True if router is locked, false otherwise
+     */
+    function getRouterIsLocked() external view returns (bool);
+
+    /**
+     * @notice Returns the current destination set for yield routing
+     * @return Address of current destination
+     */
+    function getRouterCurrentDestination() external view returns (address);
+
+    /**
      * @notice Checks if an address has been granted yield access
      * @param _address Address to check
      * @return True if access is granted, false otherwise
