@@ -40,14 +40,14 @@ contract YieldRouterTest is Test {
 
     function testFactoryRouterCreationAndOwnerBeingSet() public {
         vm.prank(user);
-        yieldRouter = yieldRouterFactory.createYieldRouter(aUSDCAddress, usdcAddress);
+        yieldRouter = yieldRouterFactory.createYieldRouter(user, aUSDCAddress, usdcAddress);
         assertEq(yieldRouter.getRouterOwner(), user);
     }
 
     function testFactoryPermittedTokens() public {
         vm.prank(user);
         vm.expectRevert();
-        yieldRouterFactory.createYieldRouter(makeAddr("fakeAdd"), makeAddr("fakeAdd2"));
+        yieldRouterFactory.createYieldRouter(makeAddr("fakeAdd3"), makeAddr("fakeAdd"), makeAddr("fakeAdd2"));
     }
 
     function testFactoryOwner() public {

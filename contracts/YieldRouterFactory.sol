@@ -40,7 +40,6 @@ contract YieldRouterFactory {
     }
 
     function createYieldRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (YieldRouter) {
-        address routerOwner = _routerOwner;
         if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
         if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
 
@@ -48,7 +47,7 @@ contract YieldRouterFactory {
         YieldRouter yieldRouter = YieldRouter(clone);
 
         yieldRouter.initialize(address(i_addressesProvider), _yieldBarringToken, _principalToken);
-        yieldRouter.setOwner(routerOwner);
+        yieldRouter.setOwner(_routerOwner);
         yieldRouter.setFactoryOwner(i_factoryOwner);
         s_yieldRouters.push(address(yieldRouter));
         return (yieldRouter);
