@@ -68,7 +68,7 @@ contract YieldRouterTest is Test {
 
         // owner deploys their own YieldRouter via factory
         vm.prank(routerOwner);
-        yieldRouter = yieldRouterFactory.createYieldRouter(aUSDCAddress, usdcAddress);
+        yieldRouter = yieldRouterFactory.createYieldRouter(routerOwner, aUSDCAddress, usdcAddress);
 
         // owner approves YieldRouter to spend aUSDC
         vm.prank(routerOwner);

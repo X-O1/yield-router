@@ -128,6 +128,12 @@ contract YieldRouter is IYieldRouter {
 
     /// @inheritdoc IYieldRouter
     function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
+        if (_grantedYieldAccess) {
+            if (s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_GRANTED();
+        }
+        if (!_grantedYieldAccess) {
+            if (!s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_NOT_GRANTED();
+        }
         _grantedYieldAccess ? s_routerAccessRecords[_account].grantedYieldAccess = true : s_routerAccessRecords[_account].grantedYieldAccess = false;
 
         _grantedYieldAccess
