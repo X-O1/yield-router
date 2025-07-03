@@ -39,8 +39,8 @@ contract YieldRouterFactory {
         _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
     }
 
-    function createYieldRouter(address _yieldBarringToken, address _principalToken) external returns (YieldRouter) {
-        address routerOwner = msg.sender;
+    function createYieldRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (YieldRouter) {
+        address routerOwner = _routerOwner;
         if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
         if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
 

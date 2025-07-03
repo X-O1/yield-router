@@ -82,8 +82,7 @@ contract YieldRouter is IYieldRouter {
     }
 
     // denies access if router is not active
-    // ensures only owner can call the router while its inactive
-    // once active any can call
+    // ensures only owner can call the router while its inactive once active any can call
     modifier ifRouterActive() {
         if (msg.sender != s_owner)
             if (!s_routerStatus.isActive) revert ROUTER_ACTIVE();

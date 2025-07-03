@@ -53,7 +53,7 @@ forge install X-O1/yield-router --no-commit
 Make sure your `remappings.txt` includes the correct alias if needed:
 
 ```
-@YieldRouter/=lib/YieldRouter/contracts
+@YieldRouter/=lib/yield-router/contracts
 ```
 
 Once installed, import the contract in your code like this:
