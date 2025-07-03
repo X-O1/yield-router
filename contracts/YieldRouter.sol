@@ -156,7 +156,7 @@ contract YieldRouter is IYieldRouter {
     // === LOCKS ALL OF OWNER'S FUNDS UNTIL DESTINATION ADDRESS RECIEVES MAX YIELD ALLOWANCE ===
     /// @inheritdoc IYieldRouter
     function lockRouter() public onlyOwner {
-        if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
+        if (!s_routerStatus.isActive) revert ROUTER_MUST_BE_ACTIVE_TO_LOCK();
         if (s_routerStatus.isLocked) revert ROUTER_LOCKED();
         s_routerStatus.isLocked = true;
 

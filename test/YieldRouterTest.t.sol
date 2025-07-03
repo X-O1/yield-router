@@ -161,7 +161,7 @@ contract YieldRouterTest is Test {
         assertEq(yieldRouter.isAddressGrantedRouterAccess(user), false);
     }
 
-    function testPayoutWhenYieldCoversAllowance() public {
+    function testRouterWhenYieldCoversAllowance() public {
         // owner deposits
         vm.prank(routerOwner);
         yieldRouter.deposit(aUSDCAddress, 1000 * WAD);
@@ -193,7 +193,7 @@ contract YieldRouterTest is Test {
         assertEq(yieldRouter.getRouterCurrentDestination(), address(0));
     }
 
-    function testPayoutWhenYieldDoesNottCoverAllowance() public {
+    function testRouterWhenYieldDoesNottCoverAllowance() public {
         // owner deposits
         vm.prank(routerOwner);
         yieldRouter.deposit(aUSDCAddress, 1000 * WAD);
@@ -241,5 +241,75 @@ contract YieldRouterTest is Test {
         assertEq(yieldRouter.getRouterIsActive(), false);
         assertEq(yieldRouter.getRouterIsLocked(), false);
         assertEq(yieldRouter.getRouterCurrentDestination(), address(0));
+    }
+
+    function testLockingRouterUntilAllowanceIsPayedOut() public {
+        // owner deposits
+        vm.prank(routerOwner);
+        yieldRouter.deposit(aUSDCAddress, 1000 * WAD);
+
+        // index increases (not enough yield yet)
+        vm.prank(routerOwner);
+        mockPool.setLiquidityIndex(12e26);
+
+        // owner grants access to dev and sets 450 WAD allowance
+        vm.prank(routerOwner);
+        yieldRouter.manageRouterAccess(user, true, 450 * WAD);
+
+        // owner sets destination
+        vm.prank(routerOwner);
+        yieldRouter.setRouterDestination(user);
+
+        // owner activates router, first partial payout happens
+        vm.prank(routerOwner);
+        console.logUint(yieldRouter.activateRouter());
+
+        // owner locks the router to ensure user's allwance is fully paid before owner can withdraw any funds
+        vm.prank(routerOwner);
+        yieldRouter.lockRouter();
+        assertEq(yieldRouter.getRouterIsLocked(), true);
+
+        // check balances after first partial payout
+        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 833333333333333333333333333333);
+        assertEq(yieldRouter.getOwnerPrincipalYield(), 0);
+        assertEq(yieldRouter.getYieldAllowanceInPrincipalValue(user), 250e27);
+
+        // router still active and locked waiting to pay rest
+        assertEq(yieldRouter.getRouterIsActive(), true);
+        assertEq(yieldRouter.getRouterIsLocked(), true);
+        assertEq(yieldRouter.getRouterCurrentDestination(), address(user));
+
+        // attempt to unlock router before full allowance is paid out (should revert)
+        vm.expectRevert();
+        vm.prank(routerOwner);
+        yieldRouter.deactivateRouter();
+
+        // attempt to withdraw principal before full allowance is paid out (should revert)
+        vm.expectRevert();
+        vm.prank(routerOwner);
+        yieldRouter.withdraw(500 * WAD);
+
+        // index increases again (now enough yield)
+        vm.prank(routerOwner);
+        mockPool.setLiquidityIndex(15e26);
+
+        // activate router, rest of yield paid
+        vm.prank(routerOwner);
+        console.logUint(yieldRouter.activateRouter());
+
+        // check final balances
+        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 666666666666666666666666666666);
+        assertEq(yieldRouter.getOwnerPrincipalYield(), 0);
+        assertEq(yieldRouter.getYieldAllowanceInPrincipalValue(user), 0);
+
+        // router deactivates and unlocks automatically
+        assertEq(yieldRouter.getRouterIsActive(), false);
+        assertEq(yieldRouter.getRouterIsLocked(), false);
+        assertEq(yieldRouter.getRouterCurrentDestination(), address(0));
+
+        // attempt to withdraw principal after full allowance is paid out and router is unlocked
+        vm.prank(routerOwner);
+        yieldRouter.withdraw(500 * WAD);
+        assertEq(yieldRouter.getOwnerIndexAdjustedBalance(), 333333333333333333333333333333);
     }
 }
