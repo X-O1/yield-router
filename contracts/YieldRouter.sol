@@ -215,7 +215,7 @@ contract YieldRouter is IYieldRouter {
         emit Router_Activated(destination, i_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
 
-        return wadFinalRouteAmount;
+        return principalYield;
     }
 
     /// @inheritdoc IYieldRouter
