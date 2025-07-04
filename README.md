@@ -4,6 +4,8 @@ YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave)
 
 Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.
 
+Protocols can use the router to lock their users yield-barring tokens to collect yield without having to custody their user's funds. 
+
 All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).
 
 ---

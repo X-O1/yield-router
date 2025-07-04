@@ -818,6 +818,7 @@ hue-6-2: #e6c07b
             <h1 id="yieldrouter">YieldRouter</h1>
 <p>YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave), track yield growth via Aave’s liquidity index, and route that yield to permitted addresses.</p>
 <p>Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.</p>
+<p>Protocols can use the router to lock their users yield-barring tokens to collect yield without having to custody their user's funds.</p>
 <p>All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).</p>
 <hr>
 <h2 id="architecture">Architecture</h2>
