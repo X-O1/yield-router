@@ -48,12 +48,26 @@ contract RouterFactory {
         uint256 previousRouterIndex = s_Routers.length - 1;
         address previousRouter = s_Routers[previousRouterIndex];
 
-        router.initialize(previousRouter, address(i_addressesProvider), _yieldBarringToken, _principalToken);
+        router.initialize(address(this), previousRouter, address(i_addressesProvider), _yieldBarringToken, _principalToken);
         router.setOwner(_routerOwner);
         router.setFactoryOwner(i_factoryOwner);
         s_Routers.push(address(router));
 
         return (router);
+    }
+
+    // scan through every previous router. check if active. if status is active, activateRouter
+    function scanAndActivatePreviousRouters() internal {
+        uint256 previousRouterIndex = s_Routers.length - 1;
+        address previousRouter = s_Routers[previousRouterIndex];
+        Router router = Router(previousRouter);
+
+        bool prevRouterStatus = router.getRouterStatus();
+        if (prevRouterStatus) {
+            router.activateRouter();
+        } else {
+            router.scanAndActivatePreviousRouters();
+        }
     }
 
     function getAllRouters() external view returns (address[] memory) {

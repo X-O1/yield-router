@@ -39,7 +39,13 @@ interface IRouter {
      * @param _yieldBarringToken Address of the yield-bearing token (e.g., aUSDC)
      * @param _prinicalToken Address of the principal token (e.g., USDC)
      */
-    function initialize(address _previousRouter, address _addressProvider, address _yieldBarringToken, address _prinicalToken) external;
+    function initialize(
+        address _factoryAddress,
+        address _previousRouter,
+        address _addressProvider,
+        address _yieldBarringToken,
+        address _prinicalToken
+    ) external;
 
     /**
      * @notice Sets the router owner (can only be called once)

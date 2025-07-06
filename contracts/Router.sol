@@ -31,6 +31,8 @@ contract Router is IRouter {
     address private s_owner;
     // router factory owner
     address private s_factoryOwner;
+    // factory address
+    address private s_factoryAddress;
     // flag to ensure owner can only be set once
     bool private s_ownerSet;
     // flag to ensure factory owner can only be set once
@@ -109,7 +111,13 @@ contract Router is IRouter {
     }
 
     /// @inheritdoc IRouter
-    function initialize(address _previousRouter, address _addressProvider, address _yieldBarringToken, address _prinicalToken) external {
+    function initialize(
+        address _factoryAddress,
+        address _previousRouter,
+        address _addressProvider,
+        address _yieldBarringToken,
+        address _prinicalToken
+    ) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
@@ -118,6 +126,7 @@ contract Router is IRouter {
         i_yieldBarringToken = _yieldBarringToken;
         i_principalToken = _prinicalToken;
         s_previousRouterAddress = _previousRouter;
+        s_factoryAddress = _factoryAddress;
     }
 
     /// @inheritdoc IRouter
@@ -226,6 +235,8 @@ contract Router is IRouter {
 
         uint256 wadFinalRouteAmount = _rayToWad(finalIndexAdjustedRouteAmount);
         if (!IERC20(i_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
+        endRouterScan();
+        scanAndActivatePreviousRouters();
 
         emit Router_Activated(destination, i_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
@@ -297,16 +308,19 @@ contract Router is IRouter {
         return s_previousRouterAddress;
     }
 
-    function scanAndActivatePreviousRouters() public returns (bool) {
+    // scan through every previous router. check if active. if status is active, activateRouter
+    function scanAndActivatePreviousRouters() public {
         if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
 
         address prevRouter = Router(s_prevRouterScanned).getPreviousRouter();
         Router router = Router(prevRouter);
         s_prevRouterScanned = router.getAddress();
+        if (s_prevRouterScanned == s_factoryAddress) {
+            endRouterScan();
+            return;
+        }
         s_prevRouterStatus = router.getRouterStatus();
-
         if (s_prevRouterStatus) router.activateRouter();
-        return s_prevRouterStatus;
     }
 
     function endRouterScan() private {
