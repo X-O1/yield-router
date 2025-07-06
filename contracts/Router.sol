@@ -81,6 +81,12 @@ contract Router is IRouter {
         if (msg.sender != s_factoryOwner) revert NOT_FACTORY_OWNER();
         _;
     }
+
+    // restricts access to router factory, owner, or this router
+    modifier onlyAuthorized() {
+        if (msg.sender != s_factoryAddress && msg.sender != s_owner && msg.sender != address(this)) revert NOT_AUTHORIZED();
+        _;
+    }
     // restricts access to router owner
     modifier onlyOwner() {
         if (msg.sender != s_owner) revert NOT_OWNER();
@@ -309,7 +315,7 @@ contract Router is IRouter {
     }
 
     // scan through every previous router. check if active. if status is active, activateRouter
-    function scanAndActivatePreviousRouters() public {
+    function scanAndActivatePreviousRouters() public onlyAuthorized {
         if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
 
         address prevRouter = Router(s_prevRouterScanned).getPreviousRouter();
