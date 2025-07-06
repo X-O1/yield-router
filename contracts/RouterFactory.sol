@@ -56,8 +56,8 @@ contract RouterFactory {
         return (router);
     }
 
-    // scan through every previous router. check if active. if status is active, activateRouter
-    function scanAndActivatePreviousRouters() internal {
+    // scan through every previous router. check if active. if status is active, activateRouter()
+    function scanAndActivatePreviousRouters() external onlyOwner {
         uint256 previousRouterIndex = s_Routers.length - 1;
         address previousRouter = s_Routers[previousRouterIndex];
         Router router = Router(previousRouter);

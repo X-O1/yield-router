@@ -84,7 +84,7 @@ contract Router is IRouter {
 
     // restricts access to router factory, owner, or this router
     modifier onlyAuthorized() {
-        if (msg.sender != s_factoryAddress && msg.sender != s_owner && msg.sender != address(this)) revert NOT_AUTHORIZED();
+        if (msg.sender != s_factoryAddress) revert NOT_AUTHORIZED();
         _;
     }
     // restricts access to router owner
@@ -204,6 +204,7 @@ contract Router is IRouter {
     }
 
     /// @inheritdoc IRouter
+    // if called by anyone other than owner then they will earn a small % of the amout being routed
     function activateRouter() external ifRouterDestinationIsSet ifRouterActive returns (uint256) {
         s_routerStatus.isActive = true;
 
@@ -241,8 +242,11 @@ contract Router is IRouter {
 
         uint256 wadFinalRouteAmount = _rayToWad(finalIndexAdjustedRouteAmount);
         if (!IERC20(i_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
-        endRouterScan();
-        scanAndActivatePreviousRouters();
+
+        if (msg.sender == s_factoryAddress) {
+            endRouterScan();
+            scanAndActivatePreviousRouters();
+        }
 
         emit Router_Activated(destination, i_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
@@ -315,6 +319,7 @@ contract Router is IRouter {
     }
 
     // scan through every previous router. check if active. if status is active, activateRouter
+    // for factory contract to recursivly activate all active routers in case of active router build up
     function scanAndActivatePreviousRouters() public onlyAuthorized {
         if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
 
