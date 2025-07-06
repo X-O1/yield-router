@@ -4,7 +4,7 @@ YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave)
 
 Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.
 
-Protocols can use the router to lock their users yield-barring tokens to collect yield without having to custody their user's funds. 
+Because the user has full control of the router and its funds, Protocols can use the router to lock their users yield-barring tokens to collect yield without having to custody their user's funds. 
 
 All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).
 
@@ -112,66 +112,6 @@ This gives you access to the external functions your protocol needs, with no nee
 - `IYieldRouter.sol` — Public interface
 - `YieldRouterFactory.sol` — Deploys clones and sets ownership
 - `Mocks/*.sol` — USDC, aUSDC, and Aave pool mocks for local testing
-
----
-
-## Functions
-
-### External
-
-- `initialize(address addressProvider, address yieldToken, address principalToken)`
-- `setOwner(address newOwner)`
-- `setFactoryOwner(address factoryOwner)`
-- `deposit(address yieldToken, uint256 principalAmount)`
-- `withdraw(uint256 principalAmount)`
-- `activateRouter()`
-- `deactivateRouter()`
-- `lockRouter()`
-- `emergencyRouterShutDown()`
-- `setRouterDestination(address destination)`
-- `manageRouterAccess(address account, bool permitted, uint256 allowance)`
-- `getRouterOwner()`
-- `getAccountIndexAdjustedBalance()`
-- `getAccountDepositPrincipal()`
-- `isAddressGrantedYieldAccess(address)`
-
-### Internal Helpers
-
-- `_wadToRay(uint256)`
-- `_rayToWad(uint256)`
-- `_getCurrentLiquidityIndex()`
-
----
-
-## Access Control
-
-- `onlyOwner`: The user who owns the router
-- `onlyFactoryOwner`: Deployer with emergency shutdown rights
-- `ifRouterNotActive`: Prevents actions when router is active
-- `ifRouterNotLocked`: Prevents actions when router is locked
-- `ifRouterDestinationIsSet`: Enforces destination setup before routing
-
----
-
-## Events
-
-- `Deposit(address account, address token, uint256 amount)`
-- `Withdraw(address account, address token, uint256 amount)`
-- `Router_Activated(address destination, address token, uint256 amount, bool status)`
-- `Router_Status_Changed(bool isActive, bool isLocked, address destination)`
-
-All amounts emitted are in **WAD** units for frontend readability.
-
----
-
-## Testing
-
-Built with Foundry. Includes mock aToken, mock pool, and USDC. Tests for all flows.
-
-```bash
-forge install
-forge test
-```
 
 ---
 

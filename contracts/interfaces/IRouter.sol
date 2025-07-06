@@ -2,12 +2,12 @@
 pragma solidity ^0.8.30;
 
 /**
- * @title IYieldRouter
- * @notice Interface for the YieldRouter contract, defining all external functions and events
+ * @title IRouter
+ * @notice Interface for the Router contract, defining all external functions and events
  * for managing yield-bearing token deposits, yield routing, access control, and router state.
  * @dev All external inputs/outputs are in WAD (1e18), internal accounting uses RAY (1e27).
  */
-interface IYieldRouter {
+interface IRouter {
     /// @notice Emitted when a user deposits yield-bearing tokens into the router
     /// @param account The depositor (must be router owner)
     /// @param token The yield-bearing token address
@@ -39,7 +39,7 @@ interface IYieldRouter {
      * @param _yieldBarringToken Address of the yield-bearing token (e.g., aUSDC)
      * @param _prinicalToken Address of the principal token (e.g., USDC)
      */
-    function initialize(address _addressProvider, address _yieldBarringToken, address _prinicalToken) external;
+    function initialize(address _previousRouter, address _addressProvider, address _yieldBarringToken, address _prinicalToken) external;
 
     /**
      * @notice Sets the router owner (can only be called once)

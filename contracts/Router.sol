@@ -5,16 +5,17 @@ import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
 import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
-import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
-import "./YieldRouterErrors.sol";
+import {IRouter} from "./interfaces/IRouter.sol";
+import {ILogAutomation} from "@chainlink/contracts/src/v0.8/automation/interfaces/ILogAutomation.sol";
+import "./RouterErrors.sol";
 
 /**
- * @title YieldRouter
+ * @title Router
  * @notice Routes yield from a user's deposited yield-bearing tokens to addresses granted router access.
  * @dev Only handles deposits and withdrawals in the yield-bearing token (e.g., aUSDC).
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
-contract YieldRouter is IYieldRouter {
+contract Router is IRouter {
     // math helpers for wad and ray units
     using WadRayMath for uint256;
 
@@ -38,6 +39,14 @@ contract YieldRouter is IYieldRouter {
     bool private s_initialized;
     // current state of router
     RouterStatus private s_routerStatus;
+    // previous scanned router address
+    address private s_previousRouterAddress;
+    // previous scanned router instance
+    // Router private s_previousRouterContract = Router(s_previousRouterAddress);
+    // address of the prev scanned router
+    address private s_prevRouterScanned;
+    // status of the prev scanned router
+    bool private s_prevRouterStatus;
 
     // balances for owner
     struct OwnerBalances {
@@ -99,8 +108,8 @@ contract YieldRouter is IYieldRouter {
         _;
     }
 
-    /// @inheritdoc IYieldRouter
-    function initialize(address _addressProvider, address _yieldBarringToken, address _prinicalToken) external {
+    /// @inheritdoc IRouter
+    function initialize(address _previousRouter, address _addressProvider, address _yieldBarringToken, address _prinicalToken) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
@@ -108,9 +117,10 @@ contract YieldRouter is IYieldRouter {
         i_aavePool = IPool(i_addressesProvider.getPool());
         i_yieldBarringToken = _yieldBarringToken;
         i_principalToken = _prinicalToken;
+        s_previousRouterAddress = _previousRouter;
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function setOwner(address _owner) external returns (address) {
         if (s_ownerSet) revert ALREADY_SET();
         s_ownerSet = true;
@@ -118,7 +128,7 @@ contract YieldRouter is IYieldRouter {
         return s_owner;
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function setFactoryOwner(address _factoryOwner) external returns (address) {
         if (s_factoryOwnerSet) revert ALREADY_SET();
         s_factoryOwnerSet = true;
@@ -126,7 +136,7 @@ contract YieldRouter is IYieldRouter {
         return s_factoryOwner;
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
         if (_grantedYieldAccess) {
             if (s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_GRANTED();
@@ -141,7 +151,7 @@ contract YieldRouter is IYieldRouter {
             : s_routerAccessRecords[_account].principalYieldAllowance = 0;
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function setRouterDestination(address _destination) external onlyOwner {
         if (!s_routerAccessRecords[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
@@ -150,7 +160,7 @@ contract YieldRouter is IYieldRouter {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function deactivateRouter() external onlyOwner ifRouterNotLocked {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         s_routerStatus.isActive = false;
@@ -159,7 +169,7 @@ contract YieldRouter is IYieldRouter {
     }
 
     // === LOCKS ALL OF OWNER'S FUNDS UNTIL DESTINATION ADDRESS RECIEVES MAX YIELD ALLOWANCE ===
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function lockRouter() public onlyOwner {
         if (!s_routerStatus.isActive) revert ROUTER_MUST_BE_ACTIVE_TO_LOCK();
         if (s_routerStatus.isLocked) revert ROUTER_LOCKED();
@@ -168,7 +178,7 @@ contract YieldRouter is IYieldRouter {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function emergencyRouterShutDown() external onlyFactoryOwner {
         if (!s_routerStatus.isLocked) revert ROUTER_NOT_LOCKED();
         s_routerStatus.isLocked = false;
@@ -178,7 +188,7 @@ contract YieldRouter is IYieldRouter {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function activateRouter() external ifRouterDestinationIsSet ifRouterActive returns (uint256) {
         s_routerStatus.isActive = true;
 
@@ -223,7 +233,7 @@ contract YieldRouter is IYieldRouter {
         return principalYield;
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
         if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
         uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
@@ -238,7 +248,7 @@ contract YieldRouter is IYieldRouter {
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
 
-    /// @inheritdoc IYieldRouter
+    /// @inheritdoc IRouter
     function withdraw(uint256 _amountInPrincipalValue) external onlyOwner ifRouterNotActive ifRouterNotLocked returns (uint256) {
         uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
         uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
@@ -280,6 +290,35 @@ contract YieldRouter is IYieldRouter {
             s_ownerBalances[s_owner].principalYield = newYield;
         }
         return s_ownerBalances[s_owner].principalYield;
+    }
+
+    // return address of previous router created
+    function getPreviousRouter() public view returns (address) {
+        return s_previousRouterAddress;
+    }
+
+    function scanAndActivatePreviousRouters() public returns (bool) {
+        if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
+
+        address prevRouter = Router(s_prevRouterScanned).getPreviousRouter();
+        Router router = Router(prevRouter);
+        s_prevRouterScanned = router.getAddress();
+        s_prevRouterStatus = router.getRouterStatus();
+
+        if (s_prevRouterStatus) router.activateRouter();
+        return s_prevRouterStatus;
+    }
+
+    function endRouterScan() private {
+        s_prevRouterScanned = address(0);
+    }
+
+    function getAddress() public view returns (address) {
+        return address(this);
+    }
+
+    function getRouterStatus() public view returns (bool) {
+        return s_routerStatus.isActive;
     }
 
     // fetches aave's v3 pool's current liquidity index
