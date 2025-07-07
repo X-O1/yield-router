@@ -2,16 +2,15 @@
 pragma solidity ^0.8.30;
 
 import {Test, console} from "forge-std/Test.sol";
-import {YieldRouter} from "../contracts/YieldRouter.sol";
-import {YieldRouterFactory} from "../contracts/YieldRouterFactory.sol";
+import {Router} from "../contracts/Router.sol";
+import {RouterFactory} from "../contracts/RouterFactory.sol";
 import {MockPool} from "./mocks/MockPool.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
 import {MockAUSDC} from "./mocks/MockAUSDC.sol";
 
-contract YieldRouterTest is Test {
-    YieldRouter yieldRouter;
-    YieldRouterFactory yieldRouterFactory;
-    address yieldRouterAddress;
+contract RouterFactoryTest is Test {
+    Router router;
+    RouterFactory routerFactory;
     MockPool mockPool;
     address addressProvider;
     MockUSDC usdc;
@@ -32,32 +31,32 @@ contract YieldRouterTest is Test {
         mockPool = new MockPool(usdcAddress, aUSDCAddress);
         addressProvider = mockPool.getPool();
         vm.startPrank(dev);
-        yieldRouterFactory = new YieldRouterFactory(addressProvider);
-        yieldRouterFactory.permitTokensForFactory(usdcAddress, true);
-        yieldRouterFactory.permitTokensForFactory(aUSDCAddress, true);
+        routerFactory = new RouterFactory(addressProvider);
+        routerFactory.permitTokensForFactory(usdcAddress, true);
+        routerFactory.permitTokensForFactory(aUSDCAddress, true);
         vm.stopPrank();
     }
 
     function testFactoryRouterCreationAndOwnerBeingSet() public {
         vm.prank(user);
-        yieldRouter = yieldRouterFactory.createYieldRouter(user, aUSDCAddress, usdcAddress);
-        assertEq(yieldRouter.getRouterOwner(), user);
+        router = routerFactory.createRouter(user, aUSDCAddress, usdcAddress);
+        assertEq(router.getRouterOwner(), user);
     }
 
     function testFactoryPermittedTokens() public {
         vm.prank(user);
         vm.expectRevert();
-        yieldRouterFactory.createYieldRouter(makeAddr("fakeAdd3"), makeAddr("fakeAdd"), makeAddr("fakeAdd2"));
+        routerFactory.createRouter(makeAddr("fakeAdd3"), makeAddr("fakeAdd"), makeAddr("fakeAdd2"));
     }
 
     function testFactoryOwner() public {
         vm.prank(user);
-        assertEq(yieldRouterFactory.getFactoryOwner(), dev);
+        assertEq(routerFactory.getFactoryOwner(), dev);
     }
 
     function testNotOwnerAddingPermittedTokensToFactory() public {
         vm.prank(user);
         vm.expectRevert();
-        yieldRouterFactory.permitTokensForFactory(makeAddr("fakeAdd"), true);
+        routerFactory.permitTokensForFactory(makeAddr("fakeAdd"), true);
     }
 }

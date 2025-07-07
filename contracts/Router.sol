@@ -247,7 +247,6 @@ contract Router is IRouter {
 
         uint256 routerFee = _getRouterFee(finalPrincipalYieldRouteAmount);
         uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
-
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
 
