@@ -33,6 +33,8 @@ interface IRouter {
     /// @param currentDestination The current yield destination address
     event Router_Status_Changed(bool indexed activeStatus, bool indexed lockedStatus, address indexed currentDestination);
 
+    event Router_Fee_Changed(uint256 indexed routerFee);
+
     /**
      * @notice Initializes the router instance (for clones)
      * @param _addressProvider Address of Aave V3 PoolAddressesProvider

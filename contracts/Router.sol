@@ -7,6 +7,7 @@ import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 import {ILogAutomation} from "@chainlink/contracts/src/v0.8/automation/interfaces/ILogAutomation.sol";
+import {RouterFactory} from "./RouterFactory.sol";
 import "./RouterErrors.sol";
 
 /**
@@ -20,15 +21,17 @@ contract Router is IRouter {
     using WadRayMath for uint256;
 
     // aave pool interface
-    IPool private i_aavePool;
+    IPool private s_aavePool;
     // aave address provider
-    IPoolAddressesProvider private i_addressesProvider;
+    IPoolAddressesProvider private s_addressesProvider;
     // yield-bearing token address (e.g., aUSDC)
-    address public i_yieldBarringToken;
+    address public s_yieldBarringToken;
     // principal token address (e.g., USDC)
-    address public i_principalToken;
+    address public s_principalToken;
     // router owner
     address private s_owner;
+    // router factory instance
+    RouterFactory private s_routerFactory;
     // router factory owner
     address private s_factoryOwner;
     // factory address
@@ -102,7 +105,7 @@ contract Router is IRouter {
     // ensures only owner can call the router while its inactive once active any can call
     modifier ifRouterActive() {
         if (msg.sender != s_owner)
-            if (!s_routerStatus.isActive) revert ROUTER_ACTIVE();
+            if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         _;
     }
     // denies access if router is locked
@@ -127,12 +130,13 @@ contract Router is IRouter {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
-        i_addressesProvider = IPoolAddressesProvider(_addressProvider);
-        i_aavePool = IPool(i_addressesProvider.getPool());
-        i_yieldBarringToken = _yieldBarringToken;
-        i_principalToken = _prinicalToken;
-        s_previousRouterAddress = _previousRouter;
         s_factoryAddress = _factoryAddress;
+        s_previousRouterAddress = _previousRouter;
+        s_addressesProvider = IPoolAddressesProvider(_addressProvider);
+        s_aavePool = IPool(s_addressesProvider.getPool());
+        s_yieldBarringToken = _yieldBarringToken;
+        s_principalToken = _prinicalToken;
+        s_routerFactory = RouterFactory(_factoryAddress);
     }
 
     /// @inheritdoc IRouter
@@ -153,6 +157,7 @@ contract Router is IRouter {
 
     /// @inheritdoc IRouter
     function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
+        _enforceWAD(_principalYieldAllowance);
         if (_grantedYieldAccess) {
             if (s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_GRANTED();
         }
@@ -212,7 +217,7 @@ contract Router is IRouter {
         address destination = s_routerStatus.currentDestination;
 
         uint256 principalYield = _updatePrincipalYield(index);
-        if (principalYield == 0) revert NO_YIELD();
+        if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
         uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
         uint256 indexAdjustedPrincipalYield = principalYield.rayDiv(index);
         uint256 indexAdjustedPrincipalYieldAllowance = principalYieldAllowance.rayDiv(index);
@@ -240,23 +245,35 @@ contract Router is IRouter {
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
-        uint256 wadFinalRouteAmount = _rayToWad(finalIndexAdjustedRouteAmount);
-        if (!IERC20(i_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
+        uint256 routerFee = _getRouterFee(finalPrincipalYieldRouteAmount);
+        uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
+
+        uint256 wadRouterFee = _rayToWad(routerFee);
+        uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
+
+        if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
         if (msg.sender == s_factoryAddress) {
             endRouterScan();
             scanAndActivatePreviousRouters();
         }
 
-        emit Router_Activated(destination, i_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
+        emit Router_Activated(destination, s_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
 
-        return principalYield;
+        return wadFinalRouteAmount;
+    }
+
+    function _getRouterFee(uint256 _amountBeingRouted) private view returns (uint256) {
+        uint256 currentFee = _getCurrentRouterFee();
+        return _amountBeingRouted.rayMul(currentFee);
     }
 
     /// @inheritdoc IRouter
     function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
-        if (_yieldBarringToken != i_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
+        _enforceWAD(_amountInPrincipalValue);
+        if (_yieldBarringToken != s_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
         uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
 
         if (indexAdjustedPrincipalAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) revert TOKEN_ALLOWANCE();
@@ -271,6 +288,7 @@ contract Router is IRouter {
 
     /// @inheritdoc IRouter
     function withdraw(uint256 _amountInPrincipalValue) external onlyOwner ifRouterNotActive ifRouterNotLocked returns (uint256) {
+        _enforceWAD(_amountInPrincipalValue);
         uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
         uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
 
@@ -279,9 +297,9 @@ contract Router is IRouter {
         s_ownerBalances[msg.sender].indexAdjustedBalance -= indexAdjustedPrincipalAmount;
         s_ownerBalances[msg.sender].principalBalance -= _wadToRay(_amountInPrincipalValue);
 
-        if (!IERC20(i_yieldBarringToken).transfer(msg.sender, _rayToWad(indexAdjustedPrincipalAmount))) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(msg.sender, _rayToWad(indexAdjustedPrincipalAmount))) revert WITHDRAW_FAILED();
 
-        emit Withdraw(msg.sender, i_yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
+        emit Withdraw(msg.sender, s_yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
 
@@ -318,8 +336,8 @@ contract Router is IRouter {
         return s_previousRouterAddress;
     }
 
-    // scan through every previous router. check if active. if status is active, activateRouter
     // for factory contract to recursivly activate all active routers in case of active router build up
+    // scan through every previous router. check if active. if status is active, activateRouter
     function scanAndActivatePreviousRouters() public onlyAuthorized {
         if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
 
@@ -348,9 +366,22 @@ contract Router is IRouter {
 
     // fetches aave's v3 pool's current liquidity index
     function _getLiquidityIndex() private view returns (uint256) {
-        uint256 currentIndex = uint256(i_aavePool.getReserveData(i_principalToken).liquidityIndex);
+        uint256 currentIndex = uint256(s_aavePool.getReserveData(s_principalToken).liquidityIndex);
         if (currentIndex < 1e27) revert INVALID_INDEX();
         return currentIndex;
+    }
+
+    // get current router fee from factory
+    function _getCurrentRouterFee() private view returns (uint256) {
+        uint256 wadRouterfee = s_routerFactory.getRouterFeePercentage();
+        return _wadToRay(wadRouterfee);
+    }
+
+    // reverts if input is not WAD units
+    function _enforceWAD(uint256 _amount) private pure {
+        if (_amount < 1e15 || _amount > 1e30) {
+            revert INPUT_MUST_BE_IN_WAD_UNITS();
+        }
     }
 
     // converts WAD units (1e18) into RAY units (1e27)
@@ -406,5 +437,16 @@ contract Router is IRouter {
     // check if an address has been granted router access
     function isAddressGrantedRouterAccess(address _address) external view returns (bool) {
         return s_routerAccessRecords[_address].grantedYieldAccess;
+    }
+
+    // get router balanceOf yield barring token
+    function getRouterBalance() external view returns (uint256) {
+        return IERC20(s_yieldBarringToken).balanceOf(address(this));
+    }
+
+    // get the principal value of routers yield barring token balance
+    function getRouterBalancePrincipalValue() external view returns (uint256) {
+        uint256 yieldTokensBalance = IERC20(s_yieldBarringToken).balanceOf(address(this));
+        return yieldTokensBalance.rayMul(_getLiquidityIndex());
     }
 }

@@ -13,6 +13,8 @@ import {IERC20Permit} from "@openzeppelin/token/ERC20/extensions/IERC20Permit.so
  * @notice Deploys vaults for each user to route yield from a specific yield-bearing token
  * @dev Uses OpenZeppelin's ERC-1167 minimal proxy (clone) pattern for efficient vault creation
  * @dev Factory owner uses TokenRegistry to permit which tokens are allowed in yield router contracts
+ * @dev inputs are expected to be in WAD (1e18)
+ * // For protocol each protocol can get their own factory so all user vault are originated from their protocol
  */
 contract RouterFactory {
     IPool private immutable i_aaveV3Pool;
@@ -20,6 +22,7 @@ contract RouterFactory {
     address private immutable i_implementation;
     address private i_factoryOwner;
     address[] public s_Routers;
+    uint256 private s_routerFeePercentage;
 
     mapping(address token => bool isPermitted) private s_permittedTokens;
 
@@ -39,6 +42,11 @@ contract RouterFactory {
         _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
     }
 
+    function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
+        _enforceWAD(_routerFeePercentage);
+        s_routerFeePercentage = _routerFeePercentage;
+    }
+
     function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
         if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
         if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
@@ -56,7 +64,7 @@ contract RouterFactory {
         return (router);
     }
 
-    // scan through every previous router. check if active. if status is active, activateRouter()
+    // scan through every previous router and if status is active call activateRouter()
     function scanAndActivatePreviousRouters() external onlyOwner {
         uint256 previousRouterIndex = s_Routers.length - 1;
         address previousRouter = s_Routers[previousRouterIndex];
@@ -70,11 +78,26 @@ contract RouterFactory {
         }
     }
 
+    // reverts if input is not WAD units
+    function _enforceWAD(uint256 _amount) private pure {
+        if (_amount < 1e15 || _amount > 1e30) {
+            revert INPUT_MUST_BE_IN_WAD_UNITS();
+        }
+    }
+
     function getAllRouters() external view returns (address[] memory) {
         return s_Routers;
     }
 
     function getFactoryOwner() external view returns (address) {
         return i_factoryOwner;
+    }
+
+    function getRouterFeePercentage() external view returns (uint256) {
+        return s_routerFeePercentage;
+    }
+
+    function isTokenPermitted(address _token) external view returns (bool) {
+        return s_permittedTokens[_token];
     }
 }

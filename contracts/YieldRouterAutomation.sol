@@ -2,7 +2,6 @@
 pragma solidity ^0.8.30;
 
 import {ILogAutomation} from "@chainlink/contracts/src/v0.8/automation/interfaces/ILogAutomation.sol";
-import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 
 /**
  * @title YieldRouterAutomation
