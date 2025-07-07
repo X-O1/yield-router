@@ -77,176 +77,165 @@ contract RouterTest is Test {
         aUSDC.approve(address(router), type(uint256).max);
     }
 
-    // function testDeposit() public {
-    //     // owner deposits 1000 WAD aUSDC into router
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-
-    //     // check principal and index-adjusted balance
-    //     assertEq(router.getOwnerPrincipalValue(), 1000 * RAY);
-    //     assertEq(router.getOwnerIndexAdjustedBalance(), 1000 * RAY);
-    // }
-
-    // function testFuzzDeposit(uint256 amount) public {
-    //     // only allow reasonable deposit amounts (1 to 1000 USDC)
-    //     vm.assume(amount > 0 && amount <= 1000 * WAD);
-
-    //     // owner deposits random fuzzed amount of aUSDC
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, amount);
-
-    //     // expected value in RAY
-    //     uint256 expectedRay = amount * 1e9;
-
-    //     // check balances
-    //     assertEq(router.getOwnerPrincipalValue(), expectedRay);
-    //     assertEq(router.getOwnerIndexAdjustedBalance(), expectedRay);
-    // }
-
-    // function testNotOwnerDeposit() public {
-    //     // dev (not owner) tries to deposit, should revert
-    //     vm.expectRevert();
-    //     vm.prank(user);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-    // }
-
-    // function testWithdraw() public {
-    //     // owner deposits into router
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-
-    //     // owner withdraws 500 WAD
-    //     vm.prank(routerOwner);
-    //     router.withdraw(500 * WAD);
-
-    //     // check remaining index-adjusted balance
-    //     assertEq(router.getOwnerIndexAdjustedBalance(), 500 * RAY);
-    // }
-
-    // function testWithdraAfterIndexChange() public {
-    //     // owner deposits into router
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-
-    //     // index increases (simulates yield)
-    //     vm.prank(routerOwner);
-    //     mockPool.setLiquidityIndex(2e27);
-
-    //     // owner withdraws full 1000 WAD principal
-    //     vm.prank(routerOwner);
-    //     router.withdraw(1000 * WAD);
-
-    //     // check balance and aUSDC transfer
-    //     assertEq(router.getOwnerIndexAdjustedBalance(), 500 * RAY);
-    //     assertEq(aUSDC.balanceOf(routerOwner), 500 * WAD);
-    // }
-
-    // function testManagingYieldAccess() public {
-    //     // owner deposits
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-
-    //     // owner grants access to dev
-    //     vm.prank(routerOwner);
-    //     router.manageRouterAccess(user, true, 100 * WAD);
-    //     assertEq(router.isAddressGrantedRouterAccess(user), true);
-
-    //     // owner revokes access
-    //     vm.prank(routerOwner);
-    //     router.manageRouterAccess(user, false, 0);
-    //     assertEq(router.isAddressGrantedRouterAccess(user), false);
-
-    //     // dev tries to re-enable access (should revert)
-    //     vm.expectRevert();
-    //     vm.prank(user);
-    //     router.manageRouterAccess(user, true, 100 * WAD);
-    //     assertEq(router.isAddressGrantedRouterAccess(user), false);
-    // }
-
-    // function testRouterWhenYieldCoversAllowance() public {
-    //     // owner deposits
-    //     vm.prank(routerOwner);
-    //     router.deposit(aUSDCAddress, 1000 * WAD);
-
-    //     // index increases (yield added)
-    //     vm.prank(routerOwner);
-    //     mockPool.setLiquidityIndex(2e27);
-
-    //     // owner grants access to dev and sets 500 WAD allowance
-    //     vm.prank(routerOwner);
-    //     router.manageRouterAccess(user, true, 500 * WAD);
-
-    //     // owner sets destination address
-    //     vm.prank(routerOwner);
-    //     router.setRouterDestination(user);
-
-    //     // owner activates router and yield is paid out in full
-    //     vm.prank(routerOwner);
-    //     console.logUint(router.routeYield());
-
-    //     // check post-payout balances
-    //     assertEq(router.getOwnerIndexAdjustedBalance(), 750e27);
-    //     assertEq(router.getOwnerPrincipalYield(), 500e27);
-    //     assertEq(router.getYieldAllowanceInPrincipalValue(user), 0);
-
-    //     // router is now inactive and cleared
-    //     assertEq(router.getRouterIsActive(), false);
-    //     assertEq(router.getRouterIsLocked(), false);
-    //     assertEq(router.getRouterCurrentDestination(), address(0));
-    // }
-
-    function testRouterWhenYieldDoesNottCoverAllowance() public {
-        // owner deposits
+    function testDeposit() public {
+        // owner deposits 1000 WAD aUSDC into router
         vm.prank(routerOwner);
         router.deposit(aUSDCAddress, 1000 * WAD);
 
-        // index increases (not enough yield yet)
-        vm.prank(routerOwner);
-        mockPool.setLiquidityIndex(12e26);
+        // check principal and index-adjusted balance
+        assertEq(router.getOwnerPrincipalValue(), 1000 * RAY);
+        assertEq(router.getOwnerIndexAdjustedBalance(), 1000 * RAY);
+    }
 
-        // owner grants access to dev and sets 450 WAD allowance
-        vm.prank(routerOwner);
-        router.manageRouterAccess(user, true, 450 * WAD);
+    function testNotOwnerDeposit() public {
+        // dev (not owner) tries to deposit, should revert
+        vm.expectRevert();
+        vm.prank(user);
+        router.deposit(aUSDCAddress, 1000 * WAD);
+    }
 
-        //     // owner sets destination
+    function testWithdraw() public {
+        // owner deposits into router
+        vm.prank(routerOwner);
+        router.deposit(aUSDCAddress, 1000 * WAD);
+
+        // owner withdraws 500 WAD
+        vm.prank(routerOwner);
+        router.withdraw(500 * WAD);
+
+        // check remaining index-adjusted balance
+        assertEq(router.getOwnerIndexAdjustedBalance(), 500 * RAY);
+    }
+
+    function testWithdraAfterIndexChange() public {
+        // owner deposits into router
+        vm.prank(routerOwner);
+        router.deposit(aUSDCAddress, 1000 * WAD);
+
+        // index increases (simulates yield)
+        vm.prank(routerOwner);
+        mockPool.setLiquidityIndex(2e27);
+
+        // owner withdraws full 1000 WAD principal
+        vm.prank(routerOwner);
+        router.withdraw(1000 * WAD);
+
+        // check balance and aUSDC transfer
+        assertEq(router.getOwnerIndexAdjustedBalance(), 500 * RAY);
+        assertEq(aUSDC.balanceOf(routerOwner), 500 * WAD);
+    }
+
+    function testManagingYieldAccess() public {
+        // owner deposits
+        vm.prank(routerOwner);
+        router.deposit(aUSDCAddress, 100e18);
+
+        // owner grants access to dev
+        vm.prank(routerOwner);
+        router.manageRouterAccess(user, true, 100e18);
+        assertEq(router.isAddressGrantedRouterAccess(user), true);
+
+        // owner revokes access
+        vm.prank(routerOwner);
+        router.manageRouterAccess(user, false, 0);
+        assertEq(router.isAddressGrantedRouterAccess(user), false);
+
+        // dev tries to re-enable access (should revert)
+        vm.expectRevert();
+        vm.prank(user);
+        router.manageRouterAccess(user, true, 100e18);
+        assertEq(router.isAddressGrantedRouterAccess(user), false);
+    }
+
+    function testRouterWhenYieldCoversAllowance() public {
+        // owner deposits
+        vm.prank(routerOwner);
+        router.deposit(aUSDCAddress, 1000e18);
+
+        // index increases (yield added)
+        vm.prank(routerOwner);
+        mockPool.setLiquidityIndex(2e27);
+
+        // owner grants access to dev and sets 500 WAD allowance
+        vm.prank(routerOwner);
+        router.manageRouterAccess(user, true, 500e18);
+
+        // owner sets destination address
         vm.prank(routerOwner);
         router.setRouterDestination(user);
 
-        // owner activates router
+        // // owner activates router signaling to factory value is ready to be routed
         vm.prank(routerOwner);
         router.activateRouter();
 
-        // facory routes yield, partial payout happens
-        vm.prank(factoryAddress);
-        router.routeYield();
+        // factory routes yield
+        vm.prank(factoryOwner);
+        routerFactory.activateActiveRouters();
 
-        // // check balances after first partial payout
-        // assertEq(router.getOwnerIndexAdjustedBalance(), 833333333333333333333333333333);
-        // assertEq(router.getOwnerPrincipalYield(), 0);
-        // assertEq(router.getYieldAllowanceInPrincipalValue(user), 250e27);
-        // // routerrstill active waiting to pay rest
-        // assertEq(router.getRouterIsActive(), true);
-        // assertEq(router.getRouterIsLocked(), false);
-        // assertEq(router.getRouterCurrentDestination(), address(user));
+        // check post-payout balances
+        assertEq(router.getOwnerIndexAdjustedBalance(), 750e27);
+        assertEq(router.getOwnerPrincipalYield(), 500e27);
+        assertEq(router.getYieldAllowanceInPrincipalValue(user), 0);
+        assertEq(routerFactory.getCollectedFees(aUSDCAddress), 5e26);
 
-        // // index increases again (now enough yield)
-        // vm.prank(routerOwner);
-        // mockPool.setLiquidityIndex(15e26);
-
-        // // activate router, rest of yield paid
-        // vm.prank(routerOwner);
-        // console.logUint(router.routeYield());
-
-        // // check final balances
-        // assertEq(router.getOwnerIndexAdjustedBalance(), 666666666666666666666666666666);
-        // assertEq(router.getOwnerPrincipalYield(), 0);
-        // assertEq(router.getYieldAllowanceInPrincipalValue(user), 0);
-
-        // // router deactivates automatically
-        // assertEq(router.getRouterIsActive(), false);
-        // assertEq(router.getRouterIsLocked(), false);
-        // assertEq(router.getRouterCurrentDestination(), address(0));
+        // router is now inactive and cleared
+        assertEq(router.getRouterIsActive(), false);
+        assertEq(router.getRouterIsLocked(), false);
+        assertEq(router.getRouterCurrentDestination(), address(0));
     }
+
+    // function testRouterWhenYieldDoesNottCoverAllowance() public {
+    // // owner deposits
+    // vm.prank(routerOwner);
+    // router.deposit(aUSDCAddress, 1000 * WAD);
+
+    // // index increases (not enough yield yet)
+    // vm.prank(routerOwner);
+    // mockPool.setLiquidityIndex(12e26);
+
+    // // owner grants access to dev and sets 450 WAD allowance
+    // vm.prank(routerOwner);
+    // router.manageRouterAccess(user, true, 450 * WAD);
+
+    // //     // owner sets destination
+    // vm.prank(routerOwner);
+    // router.setRouterDestination(user);
+
+    // // owner activates router
+    // vm.prank(routerOwner);
+    // router.activateRouter();
+
+    // // facory routes yield, partial payout happens
+    // vm.prank(factoryAddress);
+    // router.routeYield();
+
+    // // check balances after first partial payout
+    // assertEq(router.getOwnerIndexAdjustedBalance(), 833333333333333333333333333333);
+    // assertEq(router.getOwnerPrincipalYield(), 0);
+    // assertEq(router.getYieldAllowanceInPrincipalValue(user), 250e27);
+    // // routerrstill active waiting to pay rest
+    // assertEq(router.getRouterIsActive(), true);
+    // assertEq(router.getRouterIsLocked(), false);
+    // assertEq(router.getRouterCurrentDestination(), address(user));
+
+    // // index increases again (now enough yield)
+    // vm.prank(routerOwner);
+    // mockPool.setLiquidityIndex(15e26);
+
+    // // activate router, rest of yield paid
+    // vm.prank(routerOwner);
+    // console.logUint(router.routeYield());
+
+    // // check final balances
+    // assertEq(router.getOwnerIndexAdjustedBalance(), 666666666666666666666666666666);
+    // assertEq(router.getOwnerPrincipalYield(), 0);
+    // assertEq(router.getYieldAllowanceInPrincipalValue(user), 0);
+
+    // // router deactivates automatically
+    // assertEq(router.getRouterIsActive(), false);
+    // assertEq(router.getRouterIsLocked(), false);
+    // assertEq(router.getRouterCurrentDestination(), address(0));
+    // }
 
     // function testLockingRouterUntilAllowanceIsPayedOut() public {
     //     // owner deposits

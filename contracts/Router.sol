@@ -65,9 +65,10 @@ contract Router {
 
     event Deposit(address indexed account, address indexed token, uint256 indexed amount);
     event Withdraw(address indexed account, address indexed token, uint256 indexed amount);
-    event Router_Activated(address indexed destination, uint256 indexed amount, uint256 indexed routerFee);
+    event Router_Activated(address indexed router);
     event Router_Status_Changed(bool indexed activeStatus, bool indexed lockedStatus, address indexed currentDestination);
     event Router_Fee_Changed(uint256 indexed routerFee);
+    event Yield_Routed(address indexed destination, uint256 indexed amount, uint256 indexed routerFee);
 
     // maps owner to their balances
     mapping(address owner => OwnerBalances) public s_ownerBalances;
@@ -176,7 +177,9 @@ contract Router {
     function activateRouter() external onlyOwner ifRouterNotLocked ifRouterDestinationIsSet {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
         s_routerStatus.isActive = true;
+        s_routerFactory.addToActiveRouterList(address(this));
 
+        emit Router_Activated(address(this));
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
@@ -243,11 +246,12 @@ contract Router {
         uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
+        s_routerFactory.addFees(s_yieldBarringToken, routerFee);
 
         if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
         if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
-        emit Router_Activated(destination, wadFinalRouteAmount, wadRouterFee);
+        emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
 
         return wadFinalRouteAmount;
@@ -290,15 +294,12 @@ contract Router {
 
         if (updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isActive = false;
+            s_routerFactory.removeFromActiveRouterList(address(this));
             s_routerStatus.currentDestination = address(0);
         }
         if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isLocked = false;
-            s_routerStatus.currentDestination = address(0);
         }
-
-        if (s_routerStatus.isActive) s_routerFactory.addToActiveRouterList(address(this));
-        if (!s_routerStatus.isActive) s_routerFactory.removeFromActiveRouterList(address(this));
     }
 
     // calculates how much yield has accured since deposit
@@ -343,8 +344,10 @@ contract Router {
 
     // reverts if input is not WAD units
     function _enforceWAD(uint256 _amount) private pure {
-        if (_amount < 1e15 || _amount > 1e30) {
-            revert INPUT_MUST_BE_IN_WAD_UNITS();
+        if (_amount > 0) {
+            if (_amount < 1e15 || _amount > 1e30) {
+                revert INPUT_MUST_BE_IN_WAD_UNITS();
+            }
         }
     }
 

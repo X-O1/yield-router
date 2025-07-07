@@ -88,26 +88,27 @@ contract MockPool {
     }
 
     function getReserveData(address asset) public view returns (ReserveData memory) {
-        return ReserveData({
-            configuration: ReserveConfigurationMap(0),
-            liquidityIndex: uint128(getReserveNormalizedIncome(asset)),
-            currentLiquidityRate: 0,
-            variableBorrowIndex: 0,
-            currentVariableBorrowRate: 0,
-            currentStableBorrowRate: 0,
-            lastUpdateTimestamp: uint40(block.timestamp),
-            aTokenAddress: address(0),
-            stableDebtTokenAddress: address(0),
-            variableDebtTokenAddress: address(0),
-            interestRateStrategyAddress: address(0),
-            id: 0,
-            accruedToTreasury: 0,
-            unbacked: 0,
-            isolationModeTotalDebt: 0
-        });
+        return
+            ReserveData({
+                configuration: ReserveConfigurationMap(0),
+                liquidityIndex: uint128(getReserveNormalizedIncome(asset)),
+                currentLiquidityRate: 0,
+                variableBorrowIndex: 0,
+                currentVariableBorrowRate: 0,
+                currentStableBorrowRate: 0,
+                lastUpdateTimestamp: uint40(block.timestamp),
+                aTokenAddress: address(0),
+                stableDebtTokenAddress: address(0),
+                variableDebtTokenAddress: address(0),
+                interestRateStrategyAddress: address(0),
+                id: 0,
+                accruedToTreasury: 0,
+                unbacked: 0,
+                isolationModeTotalDebt: 0
+            });
     }
 
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/ ) external {
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/) external {
         uint256 index = liquidityIndex[asset];
         require(index > 0, "Index not set");
 

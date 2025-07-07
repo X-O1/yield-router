@@ -23,10 +23,11 @@ contract RouterFactory {
     address private immutable i_factoryOwner;
     address[] public s_routers;
     address[] public s_activeRouters;
-    uint256 private s_routerFeePercentage;
+    uint256 private s_routerFeePercentage = 1e15;
 
     mapping(address token => bool isPermitted) private s_permittedTokens;
     mapping(address router => bool isPermitted) private s_permittedRouter;
+    mapping(address token => uint256 amount) public s_feesCollected;
 
     constructor(address _addressProvider) {
         i_implementation = address(new Router());
@@ -46,15 +47,22 @@ contract RouterFactory {
 
     function permitTokensForFactory(address _token, bool _isPermitted) external onlyOwner {
         _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
-
         //emit
     }
 
     function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
         _enforceWAD(_routerFeePercentage);
         s_routerFeePercentage = _routerFeePercentage;
-
         // emit
+    }
+
+    // in theory router fees should cover cost of this call making the factory profitable
+    function activateActiveRouters() external onlyOwner {
+        for (uint256 i = 0; i < s_activeRouters.length; i++) {
+            Router router = Router(s_activeRouters[i]);
+            router.routeYield();
+        }
+        //emit
     }
 
     function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
@@ -69,20 +77,33 @@ contract RouterFactory {
         router.setFactoryOwner(i_factoryOwner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
-
         //emit
-
         return (router);
     }
 
-    // in theory router fees should cover cost of this call making the factory profitable
-    function activateActiveRouters() external onlyOwner {
-        for (uint256 i = 0; i < s_activeRouters.length; i++) {
-            Router router = Router(s_activeRouters[i]);
-            router.routeYield();
-        }
+    function addFees(address _token, uint256 _amount) external onlyRouter {
+        s_feesCollected[_token] += _amount;
+    }
 
-        //emit
+    function addToActiveRouterList(address _router) external onlyRouter {
+        s_activeRouters.push(_router);
+        // emit
+    }
+
+    function removeFromActiveRouterList(address _router) external onlyRouter {
+        bool routerFound;
+        for (uint256 i = 0; i < s_activeRouters.length; i++) {
+            if (s_activeRouters[i] == _router) {
+                routerFound = true;
+                if (i != s_activeRouters.length - 1) {
+                    s_activeRouters[i] = s_activeRouters[s_activeRouters.length - 1];
+                }
+                s_activeRouters.pop();
+                break;
+            }
+        }
+        if (!routerFound) revert ROUTER_NOT_FOUND();
+        // emit
     }
 
     // reverts if input is not WAD units
@@ -90,6 +111,10 @@ contract RouterFactory {
         if (_amount < 1e15 || _amount > 1e30) {
             revert INPUT_MUST_BE_IN_WAD_UNITS();
         }
+    }
+
+    function getCollectedFees(address _token) external view returns (uint256) {
+        return s_feesCollected[_token];
     }
 
     function getAllRouters() external view returns (address[] memory) {
@@ -110,29 +135,5 @@ contract RouterFactory {
 
     function isTokenPermitted(address _token) external view returns (bool) {
         return s_permittedTokens[_token];
-    }
-
-    function addToActiveRouterList(address _router) external onlyRouter {
-        s_routers.push(_router);
-
-        // emit
-    }
-
-    function removeFromActiveRouterList(address _router) external onlyRouter {
-        bool routerFound;
-
-        for (uint256 i = 0; i < s_activeRouters.length; i++) {
-            if (s_activeRouters[i] == _router) {
-                routerFound = true;
-                if (i != s_activeRouters.length - 1) {
-                    s_activeRouters[i] = s_activeRouters[s_activeRouters.length - 1];
-                }
-                s_activeRouters.pop();
-                break;
-            }
-        }
-        if (!routerFound) revert ROUTER_NOT_FOUND();
-
-        // emit
     }
 }
