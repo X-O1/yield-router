@@ -46,11 +46,15 @@ contract RouterFactory {
 
     function permitTokensForFactory(address _token, bool _isPermitted) external onlyOwner {
         _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
+
+        //emit
     }
 
     function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
         _enforceWAD(_routerFeePercentage);
         s_routerFeePercentage = _routerFeePercentage;
+
+        // emit
     }
 
     function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
@@ -59,14 +63,14 @@ contract RouterFactory {
 
         address clone = Clones.clone(i_implementation);
         Router router = Router(clone);
-        uint256 previousRouterIndex = s_routers.length - 1;
-        address previousRouter = s_routers[previousRouterIndex];
 
-        router.initialize(address(this), previousRouter, address(i_addressesProvider), _yieldBarringToken, _principalToken);
+        router.initialize(address(this), address(i_addressesProvider), _yieldBarringToken, _principalToken);
         router.setOwner(_routerOwner);
         router.setFactoryOwner(i_factoryOwner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
+
+        //emit
 
         return (router);
     }
@@ -75,8 +79,10 @@ contract RouterFactory {
     function activateActiveRouters() external onlyOwner {
         for (uint256 i = 0; i < s_activeRouters.length; i++) {
             Router router = Router(s_activeRouters[i]);
-            router.activateRouter();
+            router.routeYield();
         }
+
+        //emit
     }
 
     // reverts if input is not WAD units
@@ -98,12 +104,18 @@ contract RouterFactory {
         return s_routerFeePercentage;
     }
 
+    function getFactoryAddress() external view returns (address) {
+        return address(this);
+    }
+
     function isTokenPermitted(address _token) external view returns (bool) {
         return s_permittedTokens[_token];
     }
 
     function addToActiveRouterList(address _router) external onlyRouter {
         s_routers.push(_router);
+
+        // emit
     }
 
     function removeFromActiveRouterList(address _router) external onlyRouter {
@@ -120,5 +132,7 @@ contract RouterFactory {
             }
         }
         if (!routerFound) revert ROUTER_NOT_FOUND();
+
+        // emit
     }
 }

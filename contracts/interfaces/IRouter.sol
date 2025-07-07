@@ -22,10 +22,8 @@ interface IRouter {
 
     /// @notice Emitted when yield is routed to a permitted destination
     /// @param destination The destination receiving yield
-    /// @param token The yield-bearing token
     /// @param amount The amount of yield routed (in WAD)
-    /// @param routerStatus The router's active status after routing
-    event Router_Activated(address indexed destination, address token, uint256 indexed amount, bool indexed routerStatus);
+    event Router_Activated(address indexed destination, uint256 indexed amount, uint256 indexed routerFee);
 
     /// @notice Emitted when the router's status changes
     /// @param activeStatus Whether the router is currently active
