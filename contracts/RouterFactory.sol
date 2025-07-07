@@ -20,11 +20,13 @@ contract RouterFactory {
     IPool private immutable i_aaveV3Pool;
     IPoolAddressesProvider private immutable i_addressesProvider;
     address private immutable i_implementation;
-    address private i_factoryOwner;
-    address[] public s_Routers;
+    address private immutable i_factoryOwner;
+    address[] public s_routers;
+    address[] public s_activeRouters;
     uint256 private s_routerFeePercentage;
 
     mapping(address token => bool isPermitted) private s_permittedTokens;
+    mapping(address router => bool isPermitted) private s_permittedRouter;
 
     constructor(address _addressProvider) {
         i_implementation = address(new Router());
@@ -35,6 +37,10 @@ contract RouterFactory {
 
     modifier onlyOwner() {
         if (msg.sender != i_factoryOwner) revert NOT_OWNER();
+        _;
+    }
+    modifier onlyRouter() {
+        if (!s_permittedRouter[msg.sender]) revert NOT_ROUTER();
         _;
     }
 
@@ -53,28 +59,23 @@ contract RouterFactory {
 
         address clone = Clones.clone(i_implementation);
         Router router = Router(clone);
-        uint256 previousRouterIndex = s_Routers.length - 1;
-        address previousRouter = s_Routers[previousRouterIndex];
+        uint256 previousRouterIndex = s_routers.length - 1;
+        address previousRouter = s_routers[previousRouterIndex];
 
         router.initialize(address(this), previousRouter, address(i_addressesProvider), _yieldBarringToken, _principalToken);
         router.setOwner(_routerOwner);
         router.setFactoryOwner(i_factoryOwner);
-        s_Routers.push(address(router));
+        s_routers.push(address(router));
+        s_permittedRouter[address(router)] = true;
 
         return (router);
     }
 
-    // scan through every previous router and if status is active call activateRouter()
-    function scanAndActivatePreviousRouters() external onlyOwner {
-        uint256 previousRouterIndex = s_Routers.length - 1;
-        address previousRouter = s_Routers[previousRouterIndex];
-        Router router = Router(previousRouter);
-
-        bool prevRouterStatus = router.getRouterStatus();
-        if (prevRouterStatus) {
+    // in theory router fees should cover cost of this call making the factory profitable
+    function activateActiveRouters() external onlyOwner {
+        for (uint256 i = 0; i < s_activeRouters.length; i++) {
+            Router router = Router(s_activeRouters[i]);
             router.activateRouter();
-        } else {
-            router.scanAndActivatePreviousRouters();
         }
     }
 
@@ -86,7 +87,7 @@ contract RouterFactory {
     }
 
     function getAllRouters() external view returns (address[] memory) {
-        return s_Routers;
+        return s_routers;
     }
 
     function getFactoryOwner() external view returns (address) {
@@ -99,5 +100,25 @@ contract RouterFactory {
 
     function isTokenPermitted(address _token) external view returns (bool) {
         return s_permittedTokens[_token];
+    }
+
+    function addToActiveRouterList(address _router) external onlyRouter {
+        s_routers.push(_router);
+    }
+
+    function removeFromActiveRouterList(address _router) external onlyRouter {
+        bool routerFound;
+
+        for (uint256 i = 0; i < s_activeRouters.length; i++) {
+            if (s_activeRouters[i] == _router) {
+                routerFound = true;
+                if (i != s_activeRouters.length - 1) {
+                    s_activeRouters[i] = s_activeRouters[s_activeRouters.length - 1];
+                }
+                s_activeRouters.pop();
+                break;
+            }
+        }
+        if (!routerFound) revert ROUTER_NOT_FOUND();
     }
 }

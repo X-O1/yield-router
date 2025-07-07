@@ -101,11 +101,18 @@ contract Router is IRouter {
         _;
     }
 
-    // denies access if router is not active
-    // ensures only owner can call the router while its inactive once active any can call
-    modifier ifRouterActive() {
-        if (msg.sender != s_owner)
-            if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
+    // resticts access to owner if router not active
+    modifier onlyOwnerIfNotActive() {
+        if (!s_routerStatus.isActive) {
+            if (msg.sender != s_owner) revert NOT_OWNER();
+        }
+        _;
+    }
+    // resticts access to factory if router is active
+    modifier onlyFactoryIfActive() {
+        if (s_routerStatus.isActive) {
+            if (msg.sender != s_factoryAddress) revert NOT_FACTORY();
+        }
         _;
     }
     // denies access if router is locked
@@ -210,14 +217,14 @@ contract Router is IRouter {
 
     /// @inheritdoc IRouter
     // if called by anyone other than owner then they will earn a small % of the amout being routed
-    function activateRouter() external ifRouterDestinationIsSet ifRouterActive returns (uint256) {
+    function activateRouter() external ifRouterDestinationIsSet onlyOwnerIfNotActive onlyFactoryIfActive returns (uint256) {
         s_routerStatus.isActive = true;
 
         uint256 index = _getLiquidityIndex();
-        address destination = s_routerStatus.currentDestination;
-
         uint256 principalYield = _updatePrincipalYield(index);
         if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
+
+        address destination = s_routerStatus.currentDestination;
         uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
         uint256 indexAdjustedPrincipalYield = principalYield.rayDiv(index);
         uint256 indexAdjustedPrincipalYieldAllowance = principalYieldAllowance.rayDiv(index);
@@ -245,7 +252,7 @@ contract Router is IRouter {
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
-        uint256 routerFee = _getRouterFee(finalPrincipalYieldRouteAmount);
+        uint256 routerFee = _calculateFee(finalPrincipalYieldRouteAmount);
         uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
@@ -253,20 +260,10 @@ contract Router is IRouter {
         if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
         if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
-        if (msg.sender == s_factoryAddress) {
-            endRouterScan();
-            scanAndActivatePreviousRouters();
-        }
-
         emit Router_Activated(destination, s_yieldBarringToken, wadFinalRouteAmount, s_routerStatus.isActive);
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
 
         return wadFinalRouteAmount;
-    }
-
-    function _getRouterFee(uint256 _amountBeingRouted) private view returns (uint256) {
-        uint256 currentFee = _getCurrentRouterFee();
-        return _amountBeingRouted.rayMul(currentFee);
     }
 
     /// @inheritdoc IRouter
@@ -314,6 +311,9 @@ contract Router is IRouter {
             s_routerStatus.isLocked = false;
             s_routerStatus.currentDestination = address(0);
         }
+
+        if (s_routerStatus.isActive) s_routerFactory.addToActiveRouterList(address(this));
+        if (!s_routerStatus.isActive) s_routerFactory.removeFromActiveRouterList(address(this));
     }
 
     // calculates how much yield has accured since deposit
@@ -335,26 +335,6 @@ contract Router is IRouter {
         return s_previousRouterAddress;
     }
 
-    // for factory contract to recursivly activate all active routers in case of active router build up
-    // scan through every previous router. check if active. if status is active, activateRouter
-    function scanAndActivatePreviousRouters() public onlyAuthorized {
-        if (s_prevRouterScanned == address(0)) s_prevRouterScanned = address(this);
-
-        address prevRouter = Router(s_prevRouterScanned).getPreviousRouter();
-        Router router = Router(prevRouter);
-        s_prevRouterScanned = router.getAddress();
-        if (s_prevRouterScanned == s_factoryAddress) {
-            endRouterScan();
-            return;
-        }
-        s_prevRouterStatus = router.getRouterStatus();
-        if (s_prevRouterStatus) router.activateRouter();
-    }
-
-    function endRouterScan() private {
-        s_prevRouterScanned = address(0);
-    }
-
     function getAddress() public view returns (address) {
         return address(this);
     }
@@ -371,9 +351,14 @@ contract Router is IRouter {
     }
 
     // get current router fee from factory
-    function _getCurrentRouterFee() private view returns (uint256) {
+    function _getCurrentRouterFeePercentage() private view returns (uint256) {
         uint256 wadRouterfee = s_routerFactory.getRouterFeePercentage();
         return _wadToRay(wadRouterfee);
+    }
+
+    function _calculateFee(uint256 _amountBeingRouted) private view returns (uint256) {
+        uint256 currentFeePercentage = _getCurrentRouterFeePercentage();
+        return _amountBeingRouted.rayMul(currentFeePercentage);
     }
 
     // reverts if input is not WAD units
