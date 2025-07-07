@@ -1,4 +1,4 @@
-# YieldRouter
+# YieldRouter (UNDER DEVELOPMENT DO NOT INSTALL)
 
 YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave), track yield growth via Aave’s liquidity index, and route that yield to permitted addresses.
 
