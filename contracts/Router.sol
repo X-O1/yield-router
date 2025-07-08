@@ -29,11 +29,11 @@ contract Router {
     // aave address provider
     IPoolAddressesProvider private s_addressesProvider;
     // yield-bearing token address (e.g., aUSDC)
-    address public s_yieldBarringToken;
+    address private s_yieldBarringToken;
     // principal token address (e.g., USDC)
-    address public s_principalToken;
+    address private s_principalToken;
     // router owner
-    address private s_owner;
+    address private s_routerOwner;
     // router factory instance
     RouterFactory private s_routerFactory;
     // router factory owner
@@ -91,12 +91,12 @@ contract Router {
 
     // restricts access to router factory or router owner
     modifier onlyAuthorized() {
-        if (msg.sender != s_factoryAddress && msg.sender != s_owner) revert NOT_AUTHORIZED();
+        if (msg.sender != s_factoryAddress && msg.sender != s_routerOwner) revert NOT_AUTHORIZED();
         _;
     }
     // restricts access to router owner
     modifier onlyOwner() {
-        if (msg.sender != s_owner) revert NOT_OWNER();
+        if (msg.sender != s_routerOwner) revert NOT_OWNER();
         _;
     }
     // denies access if router is active
@@ -112,7 +112,7 @@ contract Router {
     // resticts access to owner if router not active
     modifier onlyOwnerIfNotActive() {
         if (!s_routerStatus.isActive) {
-            if (msg.sender != s_owner) revert NOT_OWNER();
+            if (msg.sender != s_routerOwner) revert NOT_OWNER();
         }
         _;
     }
@@ -151,8 +151,8 @@ contract Router {
     function setOwner(address _owner) external returns (address) {
         if (s_ownerSet) revert ALREADY_SET();
         s_ownerSet = true;
-        s_owner = _owner;
-        return s_owner;
+        s_routerOwner = _owner;
+        return s_routerOwner;
     }
 
     // sets the factory owner (only once)
@@ -189,7 +189,7 @@ contract Router {
     // once activated router yield will be routed autmatically from facotry untill deativated
     // also sets destination of router
     function activateRouter(address _destination) external onlyOwner ifRouterDestinationIsSet {
-        if (s_ownerBalances[s_owner].indexAdjustedBalance == 0) revert NO_BALANCE_DEPOSIT_REQUIRED();
+        if (s_ownerBalances[s_routerOwner].indexAdjustedBalance == 0) revert NO_BALANCE_DEPOSIT_REQUIRED();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
 
         _setRouterDestination(_destination);
@@ -233,7 +233,7 @@ contract Router {
         uint256 principalYield = _updatePrincipalYield(index);
 
         // if not owner calling must be > $1 in yield available to use router to avoid gas costing more than value transferred
-        if (s_owner != s_factoryOwner) {
+        if (s_routerOwner != s_factoryOwner) {
             if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
         }
 
@@ -256,8 +256,8 @@ contract Router {
             s_routerAccessRecords[destination].principalYieldAllowance -= finalPrincipalYieldRouteAmount;
         }
 
-        s_ownerBalances[s_owner].principalYield -= finalPrincipalYieldRouteAmount;
-        s_ownerBalances[s_owner].indexAdjustedBalance -= finalIndexAdjustedRouteAmount;
+        s_ownerBalances[s_routerOwner].principalYield -= finalPrincipalYieldRouteAmount;
+        s_ownerBalances[s_routerOwner].indexAdjustedBalance -= finalIndexAdjustedRouteAmount;
 
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
@@ -268,7 +268,7 @@ contract Router {
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmountAfterFee = _rayToWad(routeAmountAfterFee);
 
-        if (s_owner == s_factoryOwner) {
+        if (s_routerOwner == s_factoryOwner) {
             uint256 wadFinalRouteAmountWithoutFee = _rayToWad(finalIndexAdjustedRouteAmount);
             if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountWithoutFee)) revert WITHDRAW_FAILED();
 
@@ -306,7 +306,7 @@ contract Router {
     // withdraws specified principal amount if router is inactive and unlocked
     function withdraw(uint256 _amountInPrincipalValue) external onlyOwner ifRouterNotActive ifRouterNotLocked returns (uint256) {
         _enforceWAD(_amountInPrincipalValue);
-        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
+        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_routerOwner].indexAdjustedBalance;
         uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
 
         if (indexAdjustedPrincipalAmount > currentIndexAdjustedBalance) revert INSUFFICIENT_BALANCE();
@@ -347,16 +347,16 @@ contract Router {
 
     // calculates how much yield has accured since deposit
     function _updatePrincipalYield(uint256 _currentIndex) private returns (uint256) {
-        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
+        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_routerOwner].indexAdjustedBalance;
         uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(_currentIndex);
 
-        uint256 currentPricipalBalance = s_ownerBalances[s_owner].principalBalance;
+        uint256 currentPricipalBalance = s_ownerBalances[s_routerOwner].principalBalance;
 
         if (newPricipalBalance > currentPricipalBalance) {
             uint256 newYield = newPricipalBalance - currentPricipalBalance;
-            s_ownerBalances[s_owner].principalYield = newYield;
+            s_ownerBalances[s_routerOwner].principalYield = newYield;
         }
-        return s_ownerBalances[s_owner].principalYield;
+        return s_ownerBalances[s_routerOwner].principalYield;
     }
 
     // fetches aave's v3 pool's current liquidity index
@@ -400,7 +400,7 @@ contract Router {
 
     // return router owner
     function getRouterOwner() external view returns (address) {
-        return s_owner;
+        return s_routerOwner;
     }
 
     // returns whether the router is currently active.
@@ -420,12 +420,12 @@ contract Router {
 
     // return owner's index-adjusted balance (ray)
     function getOwnerIndexAdjustedBalance() external view returns (uint256) {
-        return s_ownerBalances[s_owner].indexAdjustedBalance;
+        return s_ownerBalances[s_routerOwner].indexAdjustedBalance;
     }
 
     // return owner's index-adjusted yield (ray)
     function getOwnerPrincipalYield() external view returns (uint256) {
-        return s_ownerBalances[s_owner].principalYield;
+        return s_ownerBalances[s_routerOwner].principalYield;
     }
 
     // return address's current yield allowance (prinicipal value e.g., USDC) (ray)
@@ -435,7 +435,7 @@ contract Router {
 
     // return owner's deposit principal (ray)
     function getOwnerPrincipalValue() external view returns (uint256) {
-        return s_ownerBalances[s_owner].principalBalance;
+        return s_ownerBalances[s_routerOwner].principalBalance;
     }
 
     // return router address

@@ -26,6 +26,10 @@ contract RouterFactory {
     address private immutable i_implementation;
     // owner of this factory
     address private immutable i_factoryOwner;
+    // yield-bearing token address (e.g., aUSDC)
+    address private immutable i_yieldBarringToken;
+    // principal token address (e.g., USDC)
+    address private immutable i_principalToken;
 
     // ======================= State Variables =======================
 
@@ -44,7 +48,6 @@ contract RouterFactory {
 
     // ======================= Events =======================
 
-    event Token_Permission_Updated(address indexed token, bool isPermitted);
     event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
     event Active_Routers_Activated(uint256 numberOfRouters);
     event Router_Created(address indexed router, address indexed owner, address yieldToken, address principalToken);
@@ -57,12 +60,14 @@ contract RouterFactory {
     // ======================= Constructor =======================
 
     // constructor initializes factory
-    constructor(address _addressProvider, uint256 _startingRouterFeePercentage) {
+    constructor(address _addressProvider, uint256 _startingRouterFeePercentage, address _yieldBarringToken, address _principalToken) {
         i_implementation = address(new Router());
         i_addressesProvider = IPoolAddressesProvider(_addressProvider);
         i_aaveV3Pool = IPool(i_addressesProvider.getPool());
         i_factoryOwner = msg.sender;
         s_routerFeePercentage = _startingRouterFeePercentage;
+        i_yieldBarringToken = _yieldBarringToken;
+        i_principalToken = _principalToken;
     }
 
     // ======================= Modifiers =======================
@@ -92,12 +97,6 @@ contract RouterFactory {
         return _amount;
     }
 
-    // permits or revokes a token
-    function permitTokensForRouters(address _token, bool _isPermitted) external onlyOwner {
-        _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
-        emit Token_Permission_Updated(_token, _isPermitted);
-    }
-
     // updates router fee percentage
     function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
         _enforceWAD(_routerFeePercentage);
@@ -109,22 +108,17 @@ contract RouterFactory {
 
     /// @notice deploys a new Router instance
     /// @param _routerOwner the address that will control the router.
-    /// @param _yieldBarringToken the yield-bearing token address
-    /// @param _principalToken the underlying token address
     /// @return router the deployed Router instance
-    function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
-        if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
-        if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
-
+    function createRouter(address _routerOwner) external returns (Router) {
         address clone = Clones.clone(i_implementation);
         Router router = Router(clone);
 
-        router.initialize(address(this), address(i_addressesProvider), _yieldBarringToken, _principalToken);
+        router.initialize(address(this), address(i_addressesProvider), i_yieldBarringToken, i_principalToken);
         router.setOwner(_routerOwner);
         router.setFactoryOwner(i_factoryOwner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
-        emit Router_Created(address(router), _routerOwner, _yieldBarringToken, _principalToken);
+        emit Router_Created(address(router), _routerOwner, i_yieldBarringToken, i_principalToken);
         return (router);
     }
 
