@@ -13,6 +13,8 @@ import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
  * @notice deploys minimal proxy Router contracts for users to route yield from permitted tokens
  */
 contract RouterFactory {
+    // ======================= Immutable Variables =======================
+
     // aave v3 pool instance
     IPool private immutable i_aaveV3Pool;
     // aave address provider
@@ -21,6 +23,9 @@ contract RouterFactory {
     address private immutable i_implementation;
     // owner of this factory
     address private immutable i_factoryOwner;
+
+    // ======================= State Variables =======================
+
     // all routers deployed by this factory
     address[] public s_routers;
     // active routers ready for routing
@@ -34,13 +39,19 @@ contract RouterFactory {
     // accumulated fees per token
     mapping(address token => uint256 amount) public s_feesCollected;
 
-    event TokenPermissionUpdated(address indexed token, bool isPermitted);
-    event RouterFeePercentageUpdated(uint256 newFeePercentage);
-    event ActiveRoutersActivated(uint256 numberOfRouters);
-    event RouterCreated(address indexed router, address indexed owner, address yieldToken, address principalToken);
-    event RouterActivated(address indexed router);
-    event RouterDeactivated(address indexed router);
-    event Fees_Withdrawn(address indexed addressWithdrawn, address indexed token, uint256 indexed amount);
+    // ======================= Events =======================
+
+    event Token_Permission_Updated(address indexed token, bool isPermitted);
+    event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
+    event Active_Routers_Activated(uint256 numberOfRouters);
+    event Router_Created(address indexed router, address indexed owner, address yieldToken, address principalToken);
+    event Router_Activated(address indexed router);
+    event Router_Deactivated(address indexed router);
+    event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
+    event Yield_Routed(address indexed router);
+    event Router_Reverted(address indexed router);
+
+    // ======================= Constructor =======================
 
     // constructor initializes factory
     constructor(address _addressProvider) {
@@ -49,6 +60,8 @@ contract RouterFactory {
         i_aaveV3Pool = IPool(i_addressesProvider.getPool());
         i_factoryOwner = msg.sender;
     }
+
+    // ======================= Modifiers =======================
 
     // restricts function to factory owner
     modifier onlyOwner() {
@@ -61,6 +74,34 @@ contract RouterFactory {
         if (!s_permittedRouter[msg.sender]) revert NOT_ROUTER();
         _;
     }
+
+    // ======================= Factory Control =======================
+
+    // withdraw fees
+    function withdrawFees(address _token, uint256 _amount) external onlyOwner returns (uint256) {
+        if (s_feesCollected[_token] < _amount) revert INSUFFICIENT_BALANCE();
+
+        s_feesCollected[_token] -= _amount;
+        if (!IERC20(_token).transfer(msg.sender, _amount)) revert WITHDRAW_FAILED();
+
+        emit Fees_Withdrawn(msg.sender, _token, _amount);
+        return _amount;
+    }
+
+    // permits or revokes a token
+    function permitTokensForRouters(address _token, bool _isPermitted) external onlyOwner {
+        _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
+        emit Token_Permission_Updated(_token, _isPermitted);
+    }
+
+    // updates router fee percentage
+    function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
+        _enforceWAD(_routerFeePercentage);
+        s_routerFeePercentage = _routerFeePercentage;
+        emit Router_Fee_Percentage_Updated(_routerFeePercentage);
+    }
+
+    // ======================= Router Control =======================
 
     /// @notice deploys a new Router instance
     /// @param _routerOwner the address that will control the router
@@ -79,42 +120,27 @@ contract RouterFactory {
         router.setFactoryOwner(i_factoryOwner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
-        emit RouterCreated(address(router), _routerOwner, _yieldBarringToken, _principalToken);
+        emit Router_Created(address(router), _routerOwner, _yieldBarringToken, _principalToken);
         return (router);
     }
 
-    // permits or revokes a token
-    function permitTokensForRouters(address _token, bool _isPermitted) external onlyOwner {
-        _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
-        emit TokenPermissionUpdated(_token, _isPermitted);
-    }
-
-    // updates router fee percentage
-    function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
-        _enforceWAD(_routerFeePercentage);
-        s_routerFeePercentage = _routerFeePercentage;
-        emit RouterFeePercentageUpdated(_routerFeePercentage);
-    }
-
     // activates all routers marked active
-    function activateActiveRouters() external onlyOwner {
+    // use time-based chainlink automation to call this
+    function activateActiveRouters() external {
+        if (s_activeRouters.length == 0) revert NO_ACTIVE_ROUTERS();
+
         for (uint256 i = 0; i < s_activeRouters.length; i++) {
-            Router router = Router(s_activeRouters[i]);
-            router.routeYield();
+            try Router(s_activeRouters[i]).routeYield() {
+                emit Yield_Routed(s_activeRouters[i]);
+            } catch {
+                emit Router_Reverted(s_activeRouters[i]);
+            }
         }
-        emit ActiveRoutersActivated(s_activeRouters.length);
+
+        emit Active_Routers_Activated(s_activeRouters.length);
     }
 
-    // withdraw fees
-    function withdrawFees(address _token, uint256 _amount) external onlyOwner returns (uint256) {
-        if (s_feesCollected[_token] < _amount) revert INSUFFICIENT_BALANCE();
-
-        s_feesCollected[_token] -= _amount;
-        if (!IERC20(_token).transfer(msg.sender, _amount)) revert WITHDRAW_FAILED();
-
-        emit Fees_Withdrawn(msg.sender, _token, _amount);
-        return _amount;
-    }
+    // ======================= External Router Functions =======================
 
     // adds fees collected by routers
     function addFees(address _token, uint256 _amount) external onlyRouter {
@@ -124,7 +150,7 @@ contract RouterFactory {
     // adds router to active list
     function addToActiveRouterList(address _router) external onlyRouter {
         s_activeRouters.push(_router);
-        emit RouterActivated(_router);
+        emit Router_Activated(_router);
     }
 
     // removes router from active list
@@ -141,8 +167,10 @@ contract RouterFactory {
             }
         }
         if (!routerFound) revert ROUTER_NOT_FOUND();
-        emit RouterDeactivated(_router);
+        emit Router_Deactivated(_router);
     }
+
+    // ======================= Private Helpers =======================
 
     // checks for valid wad input
     function _enforceWAD(uint256 _amount) private pure {
@@ -150,6 +178,8 @@ contract RouterFactory {
             revert INPUT_MUST_BE_IN_WAD_UNITS();
         }
     }
+
+    // ======================= View Functions =======================
 
     // returns fees collected for token
     function getCollectedFees(address _token) external view returns (uint256 amount) {

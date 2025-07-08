@@ -89,9 +89,9 @@ contract Router {
         _;
     }
 
-    // restricts access to router factory, owner, or this router
+    // restricts access to router factory or router owner
     modifier onlyAuthorized() {
-        if (msg.sender != s_factoryAddress) revert NOT_AUTHORIZED();
+        if (msg.sender != s_factoryAddress && msg.sender != s_owner) revert NOT_AUTHORIZED();
         _;
     }
     // restricts access to router owner
@@ -186,18 +186,13 @@ contract Router {
 
     // ======================= Router Control =======================
 
-    // sets where yield will be routed to after the router is activated
-    function setRouterDestination(address _destination) external onlyOwner {
-        if (!s_routerAccessRecords[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
-        if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
-
-        s_routerStatus.currentDestination = _destination;
-        emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
-    }
-
     // once activated router yield will be routed autmatically from facotry untill deativated
-    function activateRouter() external onlyOwner ifRouterDestinationIsSet {
+    // also sets destination of router
+    function activateRouter(address _destination) external onlyOwner ifRouterDestinationIsSet {
+        if (s_ownerBalances[s_owner].indexAdjustedBalance == 0) revert NO_BALANCE_DEPOSIT_REQUIRED();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
+
+        _setRouterDestination(_destination);
         s_routerStatus.isActive = true;
         s_routerFactory.addToActiveRouterList(address(this));
 
@@ -208,6 +203,7 @@ contract Router {
     function deactivateRouter() external onlyOwner ifRouterNotLocked {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         s_routerStatus.isActive = false;
+        _setRouterDestination(address(0));
 
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
@@ -232,12 +228,14 @@ contract Router {
     }
 
     // routes available yield to the destination address and charges a router fee
-    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory {
+    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyAuthorized returns (uint256) {
         uint256 index = _getLiquidityIndex();
         uint256 principalYield = _updatePrincipalYield(index);
 
-        // must be > $1 in yield available to use router to avoid gas costing more than value transferred
-        if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
+        // if not owner calling must be > $1 in yield available to use router to avoid gas costing more than value transferred
+        if (msg.sender != s_owner) {
+            if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
+        }
 
         address destination = s_routerStatus.currentDestination;
         uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
@@ -276,6 +274,7 @@ contract Router {
         s_routerFactory.addFees(s_yieldBarringToken, routerFee);
 
         emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
+        return (wadFinalRouteAmount);
     }
 
     // ======================= Deposit & Withdraw =======================
@@ -313,7 +312,16 @@ contract Router {
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
 
-    // ======================= Internal Helpers =======================
+    // ======================= Private Helpers =======================
+
+    // sets where yield will be routed to after the router is activated
+    function _setRouterDestination(address _destination) private {
+        if (!s_routerAccessRecords[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
+        if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
+
+        s_routerStatus.currentDestination = _destination;
+        emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
+    }
 
     // helper for `activateRouter()` to update router status based on updated destination's yield allowance
     function _updateRouterStatus(address _destination) private {
@@ -322,7 +330,7 @@ contract Router {
         if (updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isActive = false;
             s_routerFactory.removeFromActiveRouterList(address(this));
-            s_routerStatus.currentDestination = address(0);
+            _setRouterDestination(address(0));
         }
         if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isLocked = false;
