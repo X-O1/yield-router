@@ -17,9 +17,11 @@ import "./RouterErrors.sol";
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
 contract Router {
+    // ======================= libraries =======================
     // math helpers for wad and ray units
     using WadRayMath for uint256;
 
+    // ======================= State Variables =======================
     // aave pool interface
     IPool private s_aavePool;
     // aave address provider
@@ -44,7 +46,12 @@ contract Router {
     bool private s_initialized;
     // current state of router
     RouterStatus private s_routerStatus;
+    // maps owner to their balances
+    mapping(address owner => OwnerBalances) public s_ownerBalances;
+    // maps each address granted router access to their yield allowance limit and tracks how much yield they’ve recieved.
+    mapping(address addressGrantedAccess => RouterAccessRecords) public s_routerAccessRecords;
 
+    // ======================= structs =======================
     // balances for owner
     struct OwnerBalances {
         uint256 principalBalance; // ray (1e27)
@@ -62,7 +69,7 @@ contract Router {
         bool isLocked;
         address currentDestination;
     }
-
+    // ======================= Events =======================
     event Deposit(address indexed account, address indexed token, uint256 indexed amount);
     event Withdraw(address indexed account, address indexed token, uint256 indexed amount);
     event Router_Activated(address indexed router);
@@ -70,10 +77,7 @@ contract Router {
     event Router_Fee_Changed(uint256 indexed routerFee);
     event Yield_Routed(address indexed destination, uint256 indexed amount, uint256 indexed routerFee);
 
-    // maps owner to their balances
-    mapping(address owner => OwnerBalances) public s_ownerBalances;
-    // maps each address granted router access to their yield allowance limit and tracks how much yield they’ve recieved.
-    mapping(address addressGrantedAccess => RouterAccessRecords) public s_routerAccessRecords;
+    // ======================= Modifiers =======================
 
     // restricts access to router factory owner
     modifier onlyFactoryOwner() {
@@ -101,7 +105,6 @@ contract Router {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         _;
     }
-
     // resticts access to owner if router not active
     modifier onlyOwnerIfNotActive() {
         if (!s_routerStatus.isActive) {
@@ -125,6 +128,9 @@ contract Router {
         _;
     }
 
+    // ======================= Initialization =======================
+
+    // initializes the router with factory address, aave provider, and token settings
     function initialize(address _factoryAddress, address _addressProvider, address _yieldBarringToken, address _prinicalToken) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
@@ -137,6 +143,7 @@ contract Router {
         s_routerFactory = RouterFactory(_factoryAddress);
     }
 
+    // sets the router's owner (only once)
     function setOwner(address _owner) external returns (address) {
         if (s_ownerSet) revert ALREADY_SET();
         s_ownerSet = true;
@@ -144,6 +151,7 @@ contract Router {
         return s_owner;
     }
 
+    // sets the factory owner (only once)
     function setFactoryOwner(address _factoryOwner) external returns (address) {
         if (s_factoryOwnerSet) revert ALREADY_SET();
         s_factoryOwnerSet = true;
@@ -151,14 +159,20 @@ contract Router {
         return s_factoryOwner;
     }
 
+    // ======================= Access Control =======================
+
+    // grants or revokes yield access and sets the yield allowance for an address
     function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
         _enforceWAD(_principalYieldAllowance);
+
         if (_grantedYieldAccess) {
             if (s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_GRANTED();
         }
+
         if (!_grantedYieldAccess) {
             if (!s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_NOT_GRANTED();
         }
+
         _grantedYieldAccess ? s_routerAccessRecords[_account].grantedYieldAccess = true : s_routerAccessRecords[_account].grantedYieldAccess = false;
 
         _grantedYieldAccess
@@ -166,6 +180,9 @@ contract Router {
             : s_routerAccessRecords[_account].principalYieldAllowance = 0;
     }
 
+    // ======================= Router Control =======================
+
+    // sets where yield will be routed to after the router is activated
     function setRouterDestination(address _destination) external onlyOwner {
         if (!s_routerAccessRecords[_destination].grantedYieldAccess) revert ADDRESS_NOT_GRANTED_YIELD_ACCESS();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
@@ -174,7 +191,8 @@ contract Router {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    function activateRouter() external onlyOwner ifRouterNotLocked ifRouterDestinationIsSet {
+    // once activated router yield will be routed autmatically from facotry untill deativated
+    function activateRouter() external onlyOwner ifRouterDestinationIsSet {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
         s_routerStatus.isActive = true;
         s_routerFactory.addToActiveRouterList(address(this));
@@ -199,6 +217,7 @@ contract Router {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
+    // only factory can call this. puts router in unlocked / not active status.
     function emergencyRouterShutDown() external onlyFactoryOwner {
         if (!s_routerStatus.isLocked) revert ROUTER_NOT_LOCKED();
         s_routerStatus.isLocked = false;
@@ -208,10 +227,12 @@ contract Router {
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
 
-    // must be > $1 in yield available to use router to avoid gas costing more than value transfered
+    // routes available yield to the destination address and charges a router fee
     function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory {
         uint256 index = _getLiquidityIndex();
         uint256 principalYield = _updatePrincipalYield(index);
+
+        // must be > $1 in yield available to use router to avoid gas costing more than value transferred
         if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
 
         address destination = s_routerStatus.currentDestination;
@@ -253,6 +274,9 @@ contract Router {
         emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
     }
 
+    // ======================= Deposit & Withdraw =======================
+
+    // deposits yield-bearing token into router and updates internal balances
     function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
         _enforceWAD(_amountInPrincipalValue);
         if (_yieldBarringToken != s_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
@@ -268,6 +292,7 @@ contract Router {
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
 
+    // withdraws specified principal amount if router is inactive and unlocked
     function withdraw(uint256 _amountInPrincipalValue) external onlyOwner ifRouterNotActive ifRouterNotLocked returns (uint256) {
         _enforceWAD(_amountInPrincipalValue);
         uint256 currentIndexAdjustedBalance = s_ownerBalances[s_owner].indexAdjustedBalance;
@@ -283,6 +308,8 @@ contract Router {
         emit Withdraw(msg.sender, s_yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
         return _rayToWad(indexAdjustedPrincipalAmount);
     }
+
+    // ======================= Internal Helpers =======================
 
     // helper for `activateRouter()` to update router status based on updated destination's yield allowance
     function _updateRouterStatus(address _destination) private {
@@ -310,14 +337,6 @@ contract Router {
             s_ownerBalances[s_owner].principalYield = newYield;
         }
         return s_ownerBalances[s_owner].principalYield;
-    }
-
-    function getAddress() public view returns (address) {
-        return address(this);
-    }
-
-    function getRouterStatus() public view returns (bool) {
-        return s_routerStatus.isActive;
     }
 
     // fetches aave's v3 pool's current liquidity index
@@ -357,6 +376,8 @@ contract Router {
         return _num / 1e9;
     }
 
+    // ======================= View Functions =======================
+
     // return router owner
     function getRouterOwner() external view returns (address) {
         return s_owner;
@@ -395,6 +416,16 @@ contract Router {
     // return owner's deposit principal (ray)
     function getOwnerPrincipalValue() external view returns (uint256) {
         return s_ownerBalances[s_owner].principalBalance;
+    }
+
+    // return router address
+    function getAddress() external view returns (address) {
+        return address(this);
+    }
+
+    // return router current status
+    function getRouterStatus() external view returns (bool) {
+        return s_routerStatus.isActive;
     }
 
     // check if an address has been granted router access
