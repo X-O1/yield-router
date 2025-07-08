@@ -209,13 +209,14 @@ contract Router {
     }
 
     // must be > $1 in yield available to use router to avoid gas costing more than value transfered
-    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory returns (uint256) {
+    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory {
         uint256 index = _getLiquidityIndex();
         uint256 principalYield = _updatePrincipalYield(index);
         if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
 
         address destination = s_routerStatus.currentDestination;
         uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
+
         uint256 indexAdjustedPrincipalYield = principalYield.rayDiv(index);
         uint256 indexAdjustedPrincipalYieldAllowance = principalYieldAllowance.rayDiv(index);
 
@@ -225,14 +226,10 @@ contract Router {
         if (principalYieldAllowance <= principalYield) {
             finalPrincipalYieldRouteAmount = principalYieldAllowance;
             finalIndexAdjustedRouteAmount = indexAdjustedPrincipalYieldAllowance;
-
             s_routerAccessRecords[destination].principalYieldAllowance = 0;
-        }
-
-        if (principalYieldAllowance > principalYield) {
+        } else {
             finalPrincipalYieldRouteAmount = principalYield;
             finalIndexAdjustedRouteAmount = indexAdjustedPrincipalYield;
-
             s_routerAccessRecords[destination].principalYieldAllowance -= finalPrincipalYieldRouteAmount;
         }
 
@@ -244,17 +241,16 @@ contract Router {
 
         uint256 routerFee = _calculateFee(finalPrincipalYieldRouteAmount);
         uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
+
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
-        s_routerFactory.addFees(s_yieldBarringToken, routerFee);
 
         if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
         if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
 
-        emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
-        emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, destination);
+        s_routerFactory.addFees(s_yieldBarringToken, routerFee);
 
-        return wadFinalRouteAmount;
+        emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
     }
 
     function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
