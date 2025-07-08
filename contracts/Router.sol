@@ -228,12 +228,12 @@ contract Router {
     }
 
     // routes available yield to the destination address and charges a router fee
-    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyAuthorized returns (uint256) {
+    function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory returns (uint256) {
         uint256 index = _getLiquidityIndex();
         uint256 principalYield = _updatePrincipalYield(index);
 
         // if not owner calling must be > $1 in yield available to use router to avoid gas costing more than value transferred
-        if (msg.sender != s_owner) {
+        if (s_owner != s_factoryOwner) {
             if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
         }
 
@@ -262,19 +262,27 @@ contract Router {
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
-        uint256 routerFee = _calculateFee(finalPrincipalYieldRouteAmount);
+        uint256 routerFee = _calculateFee(finalIndexAdjustedRouteAmount);
         uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
 
         uint256 wadRouterFee = _rayToWad(routerFee);
-        uint256 wadFinalRouteAmount = _rayToWad(routeAmountAfterFee);
+        uint256 wadFinalRouteAmountAfterFee = _rayToWad(routeAmountAfterFee);
 
-        if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
-        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
+        if (s_owner == s_factoryOwner) {
+            uint256 wadFinalRouteAmountWithoutFee = _rayToWad(finalIndexAdjustedRouteAmount);
+            if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountWithoutFee)) revert WITHDRAW_FAILED();
 
-        s_routerFactory.addFees(s_yieldBarringToken, routerFee);
+            emit Yield_Routed(destination, wadFinalRouteAmountWithoutFee, 0);
+            return (wadFinalRouteAmountWithoutFee);
+        } else {
+            if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
+            if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
 
-        emit Yield_Routed(destination, wadFinalRouteAmount, wadRouterFee);
-        return (wadFinalRouteAmount);
+            s_routerFactory.addFees(s_yieldBarringToken, routerFee);
+
+            emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
+            return (wadFinalRouteAmountAfterFee);
+        }
     }
 
     // ======================= Deposit & Withdraw =======================

@@ -5,12 +5,15 @@ import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
 import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
-import "./RouterErrors.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import "./RouterErrors.sol";
 
 /**
  * @title RouterFactory
  * @notice deploys minimal proxy Router contracts for users to route yield from permitted tokens
+ * each user gets their own factory. A single user can launch as many routers as they want from factory with no router fee and activate all from factory
+ * or a protocol can have one factory for all their users and collect fees from their users routing yield.
+ *
  */
 contract RouterFactory {
     // ======================= Immutable Variables =======================
@@ -31,7 +34,7 @@ contract RouterFactory {
     // active routers ready for routing
     address[] public s_activeRouters;
     // fee taken from routed yield (wad format, e.g. 1e15 = 0.1%)
-    uint256 private s_routerFeePercentage = 1e15;
+    uint256 private s_routerFeePercentage;
     // permitted tokens
     mapping(address token => bool isPermitted) private s_permittedTokens;
     // all routers created by this factory
@@ -54,11 +57,12 @@ contract RouterFactory {
     // ======================= Constructor =======================
 
     // constructor initializes factory
-    constructor(address _addressProvider) {
+    constructor(address _addressProvider, uint256 _startingRouterFeePercentage) {
         i_implementation = address(new Router());
         i_addressesProvider = IPoolAddressesProvider(_addressProvider);
         i_aaveV3Pool = IPool(i_addressesProvider.getPool());
         i_factoryOwner = msg.sender;
+        s_routerFeePercentage = _startingRouterFeePercentage;
     }
 
     // ======================= Modifiers =======================
@@ -104,7 +108,7 @@ contract RouterFactory {
     // ======================= Router Control =======================
 
     /// @notice deploys a new Router instance
-    /// @param _routerOwner the address that will control the router
+    /// @param _routerOwner the address that will control the router.
     /// @param _yieldBarringToken the yield-bearing token address
     /// @param _principalToken the underlying token address
     /// @return router the deployed Router instance
