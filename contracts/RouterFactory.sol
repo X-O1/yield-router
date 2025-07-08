@@ -6,7 +6,7 @@ import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesPro
 import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import "./RouterErrors.sol";
-import {IERC20Permit} from "@openzeppelin/token/ERC20/extensions/IERC20Permit.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 
 /**
  * @title RouterFactory
@@ -40,6 +40,7 @@ contract RouterFactory {
     event RouterCreated(address indexed router, address indexed owner, address yieldToken, address principalToken);
     event RouterActivated(address indexed router);
     event RouterDeactivated(address indexed router);
+    event Fees_Withdrawn(address indexed addressWithdrawn, address indexed token, uint256 indexed amount);
 
     // constructor initializes factory
     constructor(address _addressProvider) {
@@ -61,8 +62,29 @@ contract RouterFactory {
         _;
     }
 
+    /// @notice deploys a new Router instance
+    /// @param _routerOwner the address that will control the router
+    /// @param _yieldBarringToken the yield-bearing token address
+    /// @param _principalToken the underlying token address
+    /// @return router the deployed Router instance
+    function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
+        if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
+        if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
+
+        address clone = Clones.clone(i_implementation);
+        Router router = Router(clone);
+
+        router.initialize(address(this), address(i_addressesProvider), _yieldBarringToken, _principalToken);
+        router.setOwner(_routerOwner);
+        router.setFactoryOwner(i_factoryOwner);
+        s_routers.push(address(router));
+        s_permittedRouter[address(router)] = true;
+        emit RouterCreated(address(router), _routerOwner, _yieldBarringToken, _principalToken);
+        return (router);
+    }
+
     // permits or revokes a token
-    function permitTokensForFactory(address _token, bool _isPermitted) external onlyOwner {
+    function permitTokensForRouters(address _token, bool _isPermitted) external onlyOwner {
         _isPermitted ? s_permittedTokens[_token] = true : s_permittedTokens[_token] = false;
         emit TokenPermissionUpdated(_token, _isPermitted);
     }
@@ -83,25 +105,15 @@ contract RouterFactory {
         emit ActiveRoutersActivated(s_activeRouters.length);
     }
 
-    /// @notice deploys a new Router instance
-    /// @param _routerOwner the address that will control the router
-    /// @param _yieldBarringToken the yield-bearing token address
-    /// @param _principalToken the underlying token address
-    /// @return router the deployed Router instance
-    function createRouter(address _routerOwner, address _yieldBarringToken, address _principalToken) external returns (Router) {
-        if (!s_permittedTokens[_yieldBarringToken]) revert TOKEN_NOT_PERMITTED();
-        if (!s_permittedTokens[_principalToken]) revert TOKEN_NOT_PERMITTED();
+    // withdraw fees
+    function withdrawFees(address _token, uint256 _amount) external onlyOwner returns (uint256) {
+        if (s_feesCollected[_token] < _amount) revert INSUFFICIENT_BALANCE();
 
-        address clone = Clones.clone(i_implementation);
-        Router router = Router(clone);
+        s_feesCollected[_token] -= _amount;
+        if (!IERC20(_token).transfer(msg.sender, _amount)) revert WITHDRAW_FAILED();
 
-        router.initialize(address(this), address(i_addressesProvider), _yieldBarringToken, _principalToken);
-        router.setOwner(_routerOwner);
-        router.setFactoryOwner(i_factoryOwner);
-        s_routers.push(address(router));
-        s_permittedRouter[address(router)] = true;
-        emit RouterCreated(address(router), _routerOwner, _yieldBarringToken, _principalToken);
-        return (router);
+        emit Fees_Withdrawn(msg.sender, _token, _amount);
+        return _amount;
     }
 
     // adds fees collected by routers
