@@ -39,8 +39,6 @@ contract RouterFactory {
     address[] public s_activeRouters;
     // fee taken from routed yield (wad format, e.g. 1e15 = 0.1%)
     uint256 private s_routerFeePercentage;
-    // permitted tokens
-    mapping(address token => bool isPermitted) private s_permittedTokens;
     // all routers created by this factory
     mapping(address router => bool isPermitted) private s_permittedRouter;
     // accumulated fees per token
@@ -202,10 +200,5 @@ contract RouterFactory {
     // returns factory address
     function getFactoryAddress() external view returns (address factory) {
         return address(this);
-    }
-
-    // returns if token is permitted
-    function isTokenPermitted(address _token) external view returns (bool isPermitted) {
-        return s_permittedTokens[_token];
     }
 }
