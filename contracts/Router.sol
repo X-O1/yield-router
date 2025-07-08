@@ -17,11 +17,13 @@ import "./RouterErrors.sol";
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
 contract Router {
-    // ======================= libraries =======================
+    // ======================= Libraries =======================
+
     // math helpers for wad and ray units
     using WadRayMath for uint256;
 
     // ======================= State Variables =======================
+
     // aave pool interface
     IPool private s_aavePool;
     // aave address provider
@@ -52,6 +54,7 @@ contract Router {
     mapping(address addressGrantedAccess => RouterAccessRecords) public s_routerAccessRecords;
 
     // ======================= structs =======================
+
     // balances for owner
     struct OwnerBalances {
         uint256 principalBalance; // ray (1e27)
@@ -70,6 +73,7 @@ contract Router {
         address currentDestination;
     }
     // ======================= Events =======================
+
     event Deposit(address indexed account, address indexed token, uint256 indexed amount);
     event Withdraw(address indexed account, address indexed token, uint256 indexed amount);
     event Router_Activated(address indexed router);
