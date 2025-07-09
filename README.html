@@ -2,7 +2,7 @@
         <html>
         <head>
             <meta charset="UTF-8">
-            <title>YieldRouter &lpar;UNDER DEVELOPMENT DO NOT INSTALL&rpar;</title>
+            <title>YieldRouter &lpar;UNDER DEVELOPMENT &rpar;</title>
             <style>
 /* From extension vscode.github */
 /*---------------------------------------------------------------------------------------------
@@ -815,99 +815,7 @@ hue-6-2: #e6c07b
         
         </head>
         <body class="vscode-body vscode-light">
-            <h1 id="yieldrouter-under-development-do-not-install">YieldRouter (UNDER DEVELOPMENT DO NOT INSTALL)</h1>
-<p>YieldRouter allows users to deposit yield-bearing tokens (e.g., aUSDC from Aave), track yield growth via Aave’s liquidity index, and route that yield to permitted addresses.</p>
-<p>Each user is assigned their own YieldRouter contract, deployed via a factory. Only the assigned user (owner) can deposit or withdraw principal. They can optionally permit others to route yield to themselves or route to any address they choose.</p>
-<p>Because the user has full control of the router and its funds, Protocols can use the router to lock their users yield-barring tokens to collect yield without having to custody their user's funds.</p>
-<p>All internal math is done in RAY units (1e27) for precision. User-facing amounts (inputs, outputs, events) are in WAD units (1e18).</p>
-<hr>
-<h2 id="architecture">Architecture</h2>
-<ul>
-<li><strong>Factory Contract</strong>: Deploys a new YieldRouter for each user using <code>clone()</code>.</li>
-<li><strong>YieldRouter</strong>: A user-specific instance that handles deposits, yield tracking, and routing.</li>
-<li><strong>Owner</strong>: The only address allowed to deposit/withdraw. Can permit others to route yield.</li>
-</ul>
-<hr>
-<h2 id="features">Features</h2>
-<ul>
-<li>One router per user</li>
-<li>Aave-native yield tracking using the liquidity index</li>
-<li>Principal and yield tracked separately</li>
-<li>Permission system for routing yield</li>
-<li>Router lock functionality to enforce full yield allowance to be paid out before principal can be withdrawn</li>
-<li>Emergency shutdown controls</li>
-<li>Proxy-compatible initialization</li>
-</ul>
-<hr>
-<h2 id="️-yield-lock-warning">⚠️ Yield Lock Warning</h2>
-<p>Calling <code>lockRouter()</code> will <strong>freeze all of the owner's funds</strong> inside the router <strong>until the permitted destination address receives the full amount of its assigned yield allowance</strong>. This is enforced strictly and prevents any principal withdrawals.</p>
-<blockquote>
-<p>⚠️ Frontends MUST warn users before allowing <code>lockRouter()</code> to be called.</p>
-</blockquote>
-<hr>
-<h2 id="installation-forge">Installation (Forge)</h2>
-<p>To install YieldRouter into your Foundry project:</p>
-<pre><code class="language-bash">forge install X-O1/yield-router
-</code></pre>
-<p>If you’re using scoped packages or need to prevent an auto-commit:</p>
-<pre><code class="language-bash">forge install X-O1/yield-router --no-commit
-</code></pre>
-<p>Make sure your <code>remappings.txt</code> includes the correct alias if needed:</p>
-<pre><code>@YieldRouter/=lib/yield-router/contracts
-</code></pre>
-<p>Once installed, import the contract in your code like this:</p>
-<h2 id="use-the-interface">Use the Interface</h2>
-<p>Your protocol doesn't need to interact with the full <code>YieldRouter</code> contract directly. For cleaner integration, import and use the provided interface:</p>
-<pre><code class="language-solidity">import &quot;@YieldRouter/interfaces/IYieldRouter.sol&quot;;
-</code></pre>
-<p>This gives you access to the external functions your protocol needs, with no need to compile the full implementation. Useful for mocks, testing, and cleaner dependency management.</p>
-<hr>
-<h2 id="units">Units</h2>
-<ul>
-<li><strong>WAD (1e18)</strong>: Used for all user-facing input/output values</li>
-<li><strong>RAY (1e27)</strong>: Used for internal accounting and precision math</li>
-</ul>
-<hr>
-<h2 id="workflow">Workflow</h2>
-<h3 id="1-deployment">1. Deployment</h3>
-<ul>
-<li>Factory deploys a clone of the YieldRouter.</li>
-<li>The new clone is initialized with Aave addresses and token configs.</li>
-<li>Ownership is set immediately after.</li>
-</ul>
-<h3 id="2-deposit">2. Deposit</h3>
-<ul>
-<li>Only the owner can call <code>deposit</code>.</li>
-<li><code>_principalTokenAmount</code> is in WAD (e.g., 1000 USDC = 1,000 * 1e18).</li>
-<li>YieldRouter calculates scaled aToken amount using Aave's index and transfers aUSDC from the owner.</li>
-</ul>
-<h3 id="3-yield-accrual">3. Yield Accrual</h3>
-<ul>
-<li>As Aave’s index grows, so does the <code>indexAdjustedBalance</code>.</li>
-<li>The difference between <code>indexAdjustedBalance * index</code> and original <code>depositPrincipal</code> is yield.</li>
-</ul>
-<h3 id="4-route-yield">4. Route Yield</h3>
-<ul>
-<li>Owner or permitted account calls <code>activateRouter()</code>.</li>
-<li>Yield (not principal) is routed to the current destination address.</li>
-<li>If locked, router remains locked until full allowance is met.</li>
-</ul>
-<h3 id="5-withdraw">5. Withdraw</h3>
-<ul>
-<li>Only allowed when router is <strong>not active</strong> and <strong>not locked</strong>.</li>
-<li>Owner can withdraw any or all principal at the scaled value.</li>
-</ul>
-<hr>
-<h2 id="core-contracts">Core Contracts</h2>
-<ul>
-<li><code>YieldRouter.sol</code> — The individual router implementation</li>
-<li><code>IYieldRouter.sol</code> — Public interface</li>
-<li><code>YieldRouterFactory.sol</code> — Deploys clones and sets ownership</li>
-<li><code>Mocks/*.sol</code> — USDC, aUSDC, and Aave pool mocks for local testing</li>
-</ul>
-<hr>
-<h2 id="license">License</h2>
-<p>MIT</p>
+            <h1 id="yieldrouter-under-development-">YieldRouter (UNDER DEVELOPMENT )</h1>
 
             
             
