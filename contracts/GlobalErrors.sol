@@ -31,3 +31,4 @@ error NOT_ROUTER();
 error NOT_FACTORY();
 error NO_ACTIVE_ROUTERS();
 error NO_BALANCE_DEPOSIT_REQUIRED();
+error NO_YIELD();

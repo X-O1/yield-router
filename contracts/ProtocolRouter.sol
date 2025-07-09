@@ -7,8 +7,8 @@ import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 import {ILogAutomation} from "@chainlink/contracts/src/v0.8/automation/interfaces/ILogAutomation.sol";
-import {RouterFactory} from "./RouterFactory.sol";
-import "./RouterErrors.sol";
+import {ProtocolRouterFactory} from "./ProtocolRouterFactory.sol";
+import "./GlobalErrors.sol";
 
 /**
  * @title Router
@@ -16,7 +16,7 @@ import "./RouterErrors.sol";
  * @dev Only handles deposits and withdrawals in the yield-bearing token (e.g., aUSDC).
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
-contract Router {
+contract ProtocolRouter {
     // ======================= Libraries =======================
 
     // math helpers for wad and ray units
@@ -35,7 +35,7 @@ contract Router {
     // router owner
     address private s_routerOwner;
     // router factory instance
-    RouterFactory private s_routerFactory;
+    ProtocolRouterFactory private s_routerFactory;
     // router factory owner
     address private s_factoryOwner;
     // factory address
@@ -144,7 +144,7 @@ contract Router {
         s_aavePool = IPool(s_addressesProvider.getPool());
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _prinicalToken;
-        s_routerFactory = RouterFactory(_factoryAddress);
+        s_routerFactory = ProtocolRouterFactory(_factoryAddress);
     }
 
     // sets the router's owner (only once)
@@ -188,13 +188,13 @@ contract Router {
 
     // once activated router yield will be routed autmatically from facotry untill deativated
     // also sets destination of router
-    function activateRouter(address _destination) external onlyOwner ifRouterDestinationIsSet {
+    function activateRouter(address _destination) external onlyOwner {
         if (s_ownerBalances[s_routerOwner].indexAdjustedBalance == 0) revert NO_BALANCE_DEPOSIT_REQUIRED();
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
 
         _setRouterDestination(_destination);
-        s_routerStatus.isActive = true;
         s_routerFactory.addToActiveRouterList(address(this));
+        s_routerStatus.isActive = true;
 
         emit Router_Activated(address(this));
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
@@ -203,7 +203,7 @@ contract Router {
     function deactivateRouter() external onlyOwner ifRouterNotLocked {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
         s_routerStatus.isActive = false;
-        _setRouterDestination(address(0));
+        s_routerStatus.currentDestination = address(0);
 
         emit Router_Status_Changed(s_routerStatus.isActive, s_routerStatus.isLocked, s_routerStatus.currentDestination);
     }
@@ -233,9 +233,7 @@ contract Router {
         uint256 principalYield = _updatePrincipalYield(index);
 
         // if not owner calling must be > $1 in yield available to use router to avoid gas costing more than value transferred
-        if (s_routerOwner != s_factoryOwner) {
-            if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
-        }
+        if (principalYield < 1e27) revert NOT_ENOUGH_YIELD();
 
         address destination = s_routerStatus.currentDestination;
         uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
@@ -268,21 +266,13 @@ contract Router {
         uint256 wadRouterFee = _rayToWad(routerFee);
         uint256 wadFinalRouteAmountAfterFee = _rayToWad(routeAmountAfterFee);
 
-        if (s_routerOwner == s_factoryOwner) {
-            uint256 wadFinalRouteAmountWithoutFee = _rayToWad(finalIndexAdjustedRouteAmount);
-            if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountWithoutFee)) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
 
-            emit Yield_Routed(destination, wadFinalRouteAmountWithoutFee, 0);
-            return (wadFinalRouteAmountWithoutFee);
-        } else {
-            if (!IERC20(s_yieldBarringToken).transfer(s_factoryAddress, wadRouterFee)) revert WITHDRAW_FAILED();
-            if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
+        s_routerFactory.addFees(s_yieldBarringToken, routerFee);
 
-            s_routerFactory.addFees(s_yieldBarringToken, routerFee);
-
-            emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
-            return (wadFinalRouteAmountAfterFee);
-        }
+        emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
+        return (wadFinalRouteAmountAfterFee);
     }
 
     // ======================= Deposit & Withdraw =======================
@@ -336,9 +326,11 @@ contract Router {
         uint256 updatedRayRemainingYieldAllowance = s_routerAccessRecords[_destination].principalYieldAllowance;
 
         if (updatedRayRemainingYieldAllowance == 0) {
-            s_routerStatus.isActive = false;
-            s_routerFactory.removeFromActiveRouterList(address(this));
-            _setRouterDestination(address(0));
+            if (s_routerStatus.isActive) {
+                s_routerFactory.removeFromActiveRouterList(address(this));
+                s_routerStatus.currentDestination = address(0);
+                s_routerStatus.isActive = false;
+            }
         }
         if (s_routerStatus.isLocked && updatedRayRemainingYieldAllowance == 0) {
             s_routerStatus.isLocked = false;
@@ -369,6 +361,7 @@ contract Router {
     // get current router fee from factory
     function _getCurrentRouterFeePercentage() private view returns (uint256) {
         uint256 wadRouterfee = s_routerFactory.getRouterFeePercentage();
+
         return _wadToRay(wadRouterfee);
     }
 
