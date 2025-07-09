@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
+import {RouterFactoryController} from "../contracts/RouterFactoryController.sol";
 import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
@@ -26,6 +27,8 @@ contract RouterFactory {
     address private s_implementation;
     // flag to prevent re-initialization
     bool private s_initialized;
+    // factory controller instance
+    RouterFactoryController s_factoryController;
     // factory controller address
     address private s_factoryControllerAddress;
     // factory controller owner
@@ -73,6 +76,7 @@ contract RouterFactory {
         s_implementation = address(new Router());
         s_addressesProvider = IPoolAddressesProvider(_addressProvider);
         s_aaveV3Pool = IPool(s_addressesProvider.getPool());
+        s_factoryController = RouterFactoryController(_factoryController);
         s_factoryControllerAddress = _factoryController;
         s_factoryOwner = _factoryOwner;
         s_yieldBarringToken = _yieldBarringToken;
@@ -117,10 +121,12 @@ contract RouterFactory {
         address clone = Clones.clone(s_implementation);
         Router router = Router(clone);
 
-        router.initialize(address(this), address(router), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
+        router.initialize(s_factoryControllerAddress, address(this), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
         router.setOwner(s_factoryOwner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
+        s_factoryController.addRouter(address(router));
+
         emit Router_Created(address(router), s_factoryOwner, s_yieldBarringToken, s_principalToken);
         return (router);
     }

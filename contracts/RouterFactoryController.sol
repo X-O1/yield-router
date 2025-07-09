@@ -10,40 +10,47 @@ import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import "./GlobalErrors.sol";
 
 contract RouterFactoryController {
-    // aave v3 pool instance
-    IPool private s_aaveV3Pool;
+    // ======================= Immutable Variables =======================
+
     // aave address provider
-    IPoolAddressesProvider private s_addressesProvider;
+    IPoolAddressesProvider private immutable i_addressesProvider;
+    // owner of this factory controller
+    address private immutable i_factoryControllerOwner;
+
+    // ======================= State Variables =======================
+
     // logic contract address used for cloning factory instances
     address private s_implementation;
-    // owner of this factory controller
-    address private s_factoryControllerOwner;
-    // flag to prevent re-initialization
-    bool private s_initialized;
-    // all factories deployed by this controller
-    address[] public s_factories;
     // fee taken from routed yield (wad format, e.g. 1e15 = 0.1%)
     uint256 private s_routerFeePercentage;
 
-    // factories created by this controller
-    mapping(address router => bool isPermitted) private s_permittedFactory;
+    // factories deployed by this controller
+    mapping(address factory => bool isPermitted) private s_permittedFactory;
+    // routers deployed by factories deployed by this controller
+    mapping(address router => bool isPermitted) private s_permittedRouter;
     // accumulated fees per token
     mapping(address token => uint256 amount) public s_feesCollected;
+
+    // ======================= Events =======================
 
     event Router_Factory_Created(address indexed factory, address indexed owner, address yieldToken, address principalToken);
     event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
     event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
 
+    // ======================= Constructor =======================
+
     constructor(address _addressProvider, uint256 _startingRouterFeePercentage) {
         s_implementation = address(new RouterFactory());
-        s_addressesProvider = IPoolAddressesProvider(_addressProvider);
-        s_factoryControllerOwner = msg.sender;
+        i_addressesProvider = IPoolAddressesProvider(_addressProvider);
+        i_factoryControllerOwner = msg.sender;
         s_routerFeePercentage = _startingRouterFeePercentage;
     }
 
+    // ======================= Modifiers =======================
+
     // restricts function to factory owner
     modifier onlyOwner() {
-        if (msg.sender != s_factoryControllerOwner) revert NOT_OWNER();
+        if (msg.sender != i_factoryControllerOwner) revert NOT_OWNER();
         _;
     }
     // restricts function to only routers deployed by this factory
@@ -51,14 +58,20 @@ contract RouterFactoryController {
         if (!s_permittedFactory[msg.sender]) revert NOT_FACTORY();
         _;
     }
+    // restricts function to only routers deployed by this factory
+    modifier onlyRouter() {
+        if (!s_permittedRouter[msg.sender]) revert NOT_ROUTER();
+        _;
+    }
+
+    // ======================= Factory Control =======================
 
     function createUserRouterFactory(address _factoryOwner, address _yieldBarringToken, address _principalToken) external returns (RouterFactory) {
         address clone = Clones.clone(s_implementation);
         RouterFactory factory = RouterFactory(clone);
 
-        factory.initialize(address(s_addressesProvider), address(this), _factoryOwner, _yieldBarringToken, _principalToken);
+        factory.initialize(address(i_addressesProvider), address(this), _factoryOwner, _yieldBarringToken, _principalToken);
         factory.setFactoryOwner(_factoryOwner);
-        s_factories.push(address(factory));
         s_permittedFactory[address(factory)] = true;
 
         emit Router_Factory_Created(address(factory), _factoryOwner, _yieldBarringToken, _principalToken);
@@ -83,10 +96,19 @@ contract RouterFactoryController {
         emit Router_Fee_Percentage_Updated(_routerFeePercentage);
     }
 
+    // ======================= External Factory & Router Functions =======================
+
     // adds fees collected by routers
-    function addFees(address _token, uint256 _amount) external onlyFactory {
+    function addFees(address _token, uint256 _amount) external onlyRouter {
         s_feesCollected[_token] += _amount;
     }
+
+    // stores addresses of the routers deployed by factories deployed by this controller
+    function addRouter(address _address) external onlyFactory {
+        s_permittedRouter[_address] = true;
+    }
+
+    // ======================= Private Helpers =======================
 
     // checks for valid wad input
     function _enforceWAD(uint256 _amount) private pure {
@@ -94,6 +116,8 @@ contract RouterFactoryController {
             revert INPUT_MUST_BE_IN_WAD_UNITS();
         }
     }
+
+    // ======================= View Functions =======================
 
     // returns fees collected for token
     function getCollectedFees(address _token) external view returns (uint256 amount) {

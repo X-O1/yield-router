@@ -56,7 +56,7 @@ contract RouterTest is Test {
         addressProvider = mockPool.getPool();
         // deploy factory controller
         vm.startPrank(factoryControllerOwner);
-        factoryController = new RouterFactoryController(addressProvider);
+        factoryController = new RouterFactoryController(addressProvider, 1e15);
         vm.stopPrank();
         // dev deploys factory and permits USDC/aUSDC tokens
         vm.startPrank(owner);
@@ -158,7 +158,7 @@ contract RouterTest is Test {
         assertEq(router.getOwnerIndexAdjustedBalance(), 750e27);
         assertEq(router.getOwnerPrincipalYield(), 500e27);
         assertEq(router.getYieldAllowanceInPrincipalValue(user), 0);
-        assertEq(aUSDC.balanceOf(user), 250e18);
+        assertEq(aUSDC.balanceOf(user), 24975e16);
         // router is now inactive and cleared
         assertEq(router.getRouterIsActive(), false);
         assertEq(router.getRouterCurrentDestination(), address(0));

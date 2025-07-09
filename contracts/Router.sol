@@ -33,14 +33,13 @@ contract Router {
     address private s_principalToken;
     // router owner
     address private s_routerOwner;
-    // this router address
-    address private s_routerAddress;
+
     // router factory instance
     RouterFactory private s_routerFactory;
     // factory address
-    address private s_factoryAddress;
+    address private s_routerFactoryAddress;
     // router factory controller instance
-    RouterFactoryController private s_routerFactoryController;
+    RouterFactoryController private s_factoryController;
     // factory controlleraddress
     address private s_factoryControllerAddress;
     // flag to ensure owner can only be set once
@@ -87,6 +86,13 @@ contract Router {
         if (msg.sender != s_routerOwner) revert NOT_OWNER();
         _;
     }
+
+    // resticts access to factory if router is active
+    modifier onlyFactory() {
+        if (msg.sender != s_routerFactoryAddress) revert NOT_FACTORY();
+        _;
+    }
+
     // denies access if router is active
     modifier ifRouterNotActive() {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
@@ -95,12 +101,6 @@ contract Router {
     // denies access if router is not active
     modifier ifRouterActive() {
         if (!s_routerStatus.isActive) revert ROUTER_NOT_ACTIVE();
-        _;
-    }
-
-    // resticts access to factory if router is active
-    modifier onlyFactory() {
-        if (msg.sender != s_factoryAddress) revert NOT_FACTORY();
         _;
     }
 
@@ -114,8 +114,8 @@ contract Router {
 
     // initializes the router with factory address, aave provider, and token settings
     function initialize(
-        address _factoryAddress,
-        address _routerAddress,
+        address _factoryControllerAddress,
+        address _routerFactoryAddress,
         address _addressProvider,
         address _yieldBarringToken,
         address _prinicalToken
@@ -123,13 +123,14 @@ contract Router {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
-        s_factoryAddress = _factoryAddress;
-        s_routerAddress = _routerAddress;
+        s_factoryControllerAddress = _factoryControllerAddress;
+        s_factoryController = RouterFactoryController(s_factoryControllerAddress);
+        s_routerFactoryAddress = _routerFactoryAddress;
+        s_routerFactory = RouterFactory(s_routerFactoryAddress);
         s_addressesProvider = IPoolAddressesProvider(_addressProvider);
         s_aavePool = IPool(s_addressesProvider.getPool());
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _prinicalToken;
-        s_routerFactory = RouterFactory(s_factoryAddress);
     }
 
     // sets the router's owner (only once)
@@ -170,7 +171,7 @@ contract Router {
         if (s_routerStatus.isActive) revert ROUTER_ACTIVE();
 
         _setRouterDestination(_destination);
-        s_routerFactory.addToActiveRouterList(s_routerAddress);
+        s_routerFactory.addToActiveRouterList(address(this));
         s_routerStatus.isActive = true;
 
         emit Router_Activated(address(this));
@@ -226,7 +227,7 @@ contract Router {
         if (!IERC20(s_yieldBarringToken).transfer(s_factoryControllerAddress, wadRouterFee)) revert WITHDRAW_FAILED();
         if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
 
-        s_routerFactoryController.addFees(s_yieldBarringToken, routerFee);
+        s_factoryController.addFees(s_yieldBarringToken, routerFee);
 
         emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
         return (wadFinalRouteAmountAfterFee);
@@ -284,7 +285,7 @@ contract Router {
 
         if (updatedRayRemainingYieldAllowance == 0) {
             if (s_routerStatus.isActive) {
-                s_routerFactory.removeFromActiveRouterList(s_routerAddress);
+                s_routerFactory.removeFromActiveRouterList(address(this));
                 s_routerStatus.currentDestination = address(0);
                 s_routerStatus.isActive = false;
             }
@@ -307,7 +308,7 @@ contract Router {
 
     // get current router fee from factory
     function _getCurrentRouterFeePercentage() private view returns (uint256) {
-        uint256 wadRouterfee = s_routerFactoryController.getRouterFeePercentage();
+        uint256 wadRouterfee = s_factoryController.getRouterFeePercentage();
 
         return _wadToRay(wadRouterfee);
     }
