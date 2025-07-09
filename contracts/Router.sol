@@ -5,9 +5,8 @@ import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
 import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
-import {IRouter} from "./interfaces/IRouter.sol";
-import {ILogAutomation} from "@chainlink/contracts/src/v0.8/automation/interfaces/ILogAutomation.sol";
-import {UserRouterFactory} from "./UserRouterFactory.sol";
+import {RouterFactory} from "./RouterFactory.sol";
+import {RouterFactoryController} from "./RouterFactoryController.sol";
 import "./GlobalErrors.sol";
 
 /**
@@ -16,7 +15,7 @@ import "./GlobalErrors.sol";
  * @dev Only handles deposits and withdrawals in the yield-bearing token (e.g., aUSDC).
  * @dev All external inputs/outputs are in WAD (1e18); internal accounting uses RAY (1e27).
  */
-contract UserRouter {
+contract Router {
     // ======================= Libraries =======================
 
     // math helpers for wad and ray units
@@ -37,9 +36,13 @@ contract UserRouter {
     // this router address
     address private s_routerAddress;
     // router factory instance
-    UserRouterFactory private s_routerFactory;
+    RouterFactory private s_routerFactory;
     // factory address
     address private s_factoryAddress;
+    // router factory controller instance
+    RouterFactoryController private s_routerFactoryController;
+    // factory controlleraddress
+    address private s_factoryControllerAddress;
     // flag to ensure owner can only be set once
     bool private s_ownerSet;
     // flag to prevent re-initialization
@@ -126,7 +129,7 @@ contract UserRouter {
         s_aavePool = IPool(s_addressesProvider.getPool());
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _prinicalToken;
-        s_routerFactory = UserRouterFactory(s_factoryAddress);
+        s_routerFactory = RouterFactory(s_factoryAddress);
     }
 
     // sets the router's owner (only once)
@@ -214,12 +217,19 @@ contract UserRouter {
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
-        uint256 wadFinalRouteAmount = _rayToWad(finalIndexAdjustedRouteAmount);
+        uint256 routerFee = _calculateFee(finalIndexAdjustedRouteAmount);
+        uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
 
-        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmount)) revert WITHDRAW_FAILED();
+        uint256 wadRouterFee = _rayToWad(routerFee);
+        uint256 wadFinalRouteAmountAfterFee = _rayToWad(routeAmountAfterFee);
 
-        emit Yield_Routed(destination, wadFinalRouteAmount, 0);
-        return (wadFinalRouteAmount);
+        if (!IERC20(s_yieldBarringToken).transfer(s_factoryControllerAddress, wadRouterFee)) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
+
+        s_routerFactoryController.addFees(s_yieldBarringToken, routerFee);
+
+        emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
+        return (wadFinalRouteAmountAfterFee);
     }
 
     // ======================= Deposit & Withdraw =======================
@@ -293,6 +303,18 @@ contract UserRouter {
             s_ownerBalances[s_routerOwner].principalYield = newYield;
         }
         return s_ownerBalances[s_routerOwner].principalYield;
+    }
+
+    // get current router fee from factory
+    function _getCurrentRouterFeePercentage() private view returns (uint256) {
+        uint256 wadRouterfee = s_routerFactoryController.getRouterFeePercentage();
+
+        return _wadToRay(wadRouterfee);
+    }
+
+    function _calculateFee(uint256 _amountBeingRouted) private view returns (uint256) {
+        uint256 currentFeePercentage = _getCurrentRouterFeePercentage();
+        return _amountBeingRouted.rayMul(currentFeePercentage);
     }
 
     // fetches aave's v3 pool's current liquidity index

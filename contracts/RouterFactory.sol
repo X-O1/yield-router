@@ -3,19 +3,19 @@ pragma solidity ^0.8.30;
 
 import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
-import {UserRouter} from "./UserRouter.sol";
+import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import "./GlobalErrors.sol";
 
 /**
- * @title UserRouterFactory
+ * @title RouterFactory
  * @notice deploys minimal proxy Router contracts for users to route yield from permitted tokens
  * each user gets their own factory. A single user can launch as many routers as they want from factory with no router fee and activate all from factory
  * or a protocol can have one factory for all their users and collect fees from their users routing yield.
  *
  */
-contract UserRouterFactory {
+contract RouterFactory {
     // ======================= State Variables =======================
 
     // aave v3 pool instance
@@ -70,7 +70,7 @@ contract UserRouterFactory {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
-        s_implementation = address(new UserRouter());
+        s_implementation = address(new Router());
         s_addressesProvider = IPoolAddressesProvider(_addressProvider);
         s_aaveV3Pool = IPool(s_addressesProvider.getPool());
         s_factoryControllerAddress = _factoryController;
@@ -113,9 +113,9 @@ contract UserRouterFactory {
 
     /// @notice deploys a new Router instance
     /// @return router the deployed Router instance
-    function createRouter() external returns (UserRouter) {
+    function createRouter() external returns (Router) {
         address clone = Clones.clone(s_implementation);
-        UserRouter router = UserRouter(clone);
+        Router router = Router(clone);
 
         router.initialize(address(this), address(router), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
         router.setOwner(s_factoryOwner);
@@ -131,8 +131,8 @@ contract UserRouterFactory {
         if (s_activeRouters.length == 0) revert NO_ACTIVE_ROUTERS();
 
         for (uint256 i = 0; i < s_activeRouters.length; i++) {
-            address routerAddress = UserRouter(s_activeRouters[i]).getAddress();
-            UserRouter router = UserRouter(routerAddress);
+            address routerAddress = Router(s_activeRouters[i]).getAddress();
+            Router router = Router(routerAddress);
             try router.routeYield() {
                 emit Yield_Routed(routerAddress);
             } catch {
@@ -190,6 +190,11 @@ contract UserRouterFactory {
     // returns all routers
     function getActiveRouters() external view returns (address[] memory) {
         return s_activeRouters;
+    }
+
+    // returns if router is created by this factory
+    function isRouterPermitted(address _router) external view returns (bool) {
+        return s_permittedRouter[_router];
     }
 
     // returns factory owner

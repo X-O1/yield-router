@@ -2,20 +2,21 @@
 pragma solidity ^0.8.30;
 
 import {Test, console} from "forge-std/Test.sol";
-import {UserFactoryController} from "../contracts/UserFactoryController.sol";
-import {UserRouterFactory} from "../contracts/UserRouterFactory.sol";
-import {UserRouter} from "../contracts/UserRouter.sol";
+import {RouterFactoryController} from "../contracts/RouterFactoryController.sol";
+import {RouterFactory} from "../contracts/RouterFactory.sol";
+import {Router} from "../contracts/Router.sol";
+
 import {MockPool} from "./mocks/MockPool.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
 import {MockAUSDC} from "./mocks/MockAUSDC.sol";
 
 contract RouterTest is Test {
     // yield router instance under test
-    UserRouter router;
+    Router router;
     // factory used to deploy yield routers
-    UserRouterFactory routerFactory;
+    RouterFactory routerFactory;
     // factory controller to deploy factories
-    UserFactoryController factoryController;
+    RouterFactoryController factoryController;
     // mock Aave-style pool to simulate yield accrual
     MockPool mockPool;
     // address provider returned by mock pool
@@ -55,7 +56,7 @@ contract RouterTest is Test {
         addressProvider = mockPool.getPool();
         // deploy factory controller
         vm.startPrank(factoryControllerOwner);
-        factoryController = new UserFactoryController(addressProvider);
+        factoryController = new RouterFactoryController(addressProvider);
         vm.stopPrank();
         // dev deploys factory and permits USDC/aUSDC tokens
         vm.startPrank(owner);
