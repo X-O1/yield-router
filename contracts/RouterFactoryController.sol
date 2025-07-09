@@ -120,12 +120,17 @@ contract RouterFactoryController {
     // ======================= View Functions =======================
 
     // returns fees collected for token
-    function getCollectedFees(address _token) external view returns (uint256 amount) {
+    function getCollectedFees(address _token) external view returns (uint256) {
         return s_feesCollected[_token];
     }
 
     // returns current router fee percentage
-    function getRouterFeePercentage() external view returns (uint256 feePercentage) {
+    function getRouterFeePercentage() external view returns (uint256) {
         return s_routerFeePercentage;
+    }
+
+    // returns this factory controller address
+    function getFactoryControllerAddress() external view returns (address) {
+        return address(this);
     }
 }
