@@ -67,7 +67,7 @@ contract RouterTest is Test {
 
         // dev deploys factory and permits USDC/aUSDC tokens
         vm.startPrank(owner);
-        routerFactory = factoryController.createUserRouterFactory(owner, aUSDCAddress, usdcAddress);
+        routerFactory = factoryController.createRouterFactory(aUSDCAddress, usdcAddress);
         factoryAddress = routerFactory.getFactoryAddress();
         vm.stopPrank();
 
@@ -176,7 +176,7 @@ contract RouterTest is Test {
         router.activateRouter(user);
 
         // factory routes yield
-        vm.prank(factoryAddress);
+        vm.prank(factoryControllerAddress);
         routerFactory.activateActiveRouters();
 
         // check post-payout balances
@@ -209,7 +209,7 @@ contract RouterTest is Test {
         router.activateRouter(user);
 
         // factory routes yield
-        vm.prank(owner);
+        vm.prank(factoryControllerAddress);
         routerFactory.activateActiveRouters();
 
         // check balances after first partial payout
@@ -226,7 +226,7 @@ contract RouterTest is Test {
         mockPool.setLiquidityIndex(15e26);
 
         // factory routes yield
-        vm.prank(owner);
+        vm.prank(factoryControllerAddress);
         routerFactory.activateActiveRouters();
 
         // check final balances

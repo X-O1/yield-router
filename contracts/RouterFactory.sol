@@ -63,13 +63,7 @@ contract RouterFactory {
     // ======================= Initialization =======================
 
     // initializes the fractory with aave provider, starting fee percentage and token settings
-    function initialize(
-        address _addressProvider,
-        address _factoryController,
-        address _factoryOwner,
-        address _yieldBarringToken,
-        address _principalToken
-    ) external {
+    function initialize(address _addressProvider, address _factoryController, address _yieldBarringToken, address _principalToken) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
@@ -78,17 +72,9 @@ contract RouterFactory {
         s_aaveV3Pool = IPool(s_addressesProvider.getPool());
         s_factoryController = RouterFactoryController(_factoryController);
         s_factoryControllerAddress = _factoryController;
-        s_factoryOwner = _factoryOwner;
+        s_factoryOwner = msg.sender;
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _principalToken;
-    }
-
-    // sets the factory owner (only once)
-    function setFactoryOwner(address _factoryOwner) external returns (address) {
-        if (s_factoryOwnerSet) revert ALREADY_SET();
-        s_factoryOwnerSet = true;
-        s_factoryOwner = _factoryOwner;
-        return s_factoryOwner;
     }
 
     // sets the factory controller owner (only once)
@@ -122,18 +108,18 @@ contract RouterFactory {
         Router router = Router(clone);
 
         router.initialize(s_factoryControllerAddress, address(this), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
-        router.setOwner(s_factoryOwner);
+        router.setOwner(msg.sender);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
         s_factoryController.addRouter(address(router));
 
-        emit Router_Created(address(router), s_factoryOwner, s_yieldBarringToken, s_principalToken);
+        emit Router_Created(address(router), msg.sender, s_yieldBarringToken, s_principalToken);
         return (router);
     }
 
     // activates all routers marked active
     // use time-based chainlink automation to call this
-    function activateActiveRouters() external {
+    function activateActiveRouters() external onlyOwner {
         if (s_activeRouters.length == 0) revert NO_ACTIVE_ROUTERS();
 
         for (uint256 i = 0; i < s_activeRouters.length; i++) {

@@ -3,8 +3,8 @@ pragma solidity ^0.8.30;
 
 import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
-import {Router} from "./Router.sol";
 import {RouterFactory} from "./RouterFactory.sol";
+import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import "./GlobalErrors.sol";
@@ -23,6 +23,8 @@ contract RouterFactoryController {
     address private s_implementation;
     // fee taken from routed yield (wad format, e.g. 1e15 = 0.1%)
     uint256 private s_routerFeePercentage;
+    // all factories deployed by this controller
+    address[] private s_factories;
 
     // factories deployed by this controller
     mapping(address factory => bool isPermitted) private s_permittedFactory;
@@ -33,9 +35,12 @@ contract RouterFactoryController {
 
     // ======================= Events =======================
 
-    event Router_Factory_Created(address indexed factory, address indexed owner, address yieldToken, address principalToken);
+    event Router_Factory_Created(address indexed factory, address yieldToken, address principalToken);
     event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
     event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
+    event Yield_Routed(address indexed router);
+    event Router_Reverted(address indexed router);
+    event Active_Routers_Activated(uint256 numberOfRouters);
 
     // ======================= Constructor =======================
 
@@ -66,15 +71,15 @@ contract RouterFactoryController {
 
     // ======================= Factory Control =======================
 
-    function createUserRouterFactory(address _factoryOwner, address _yieldBarringToken, address _principalToken) external returns (RouterFactory) {
+    function createRouterFactory(address _yieldBarringToken, address _principalToken) external returns (RouterFactory) {
         address clone = Clones.clone(s_implementation);
         RouterFactory factory = RouterFactory(clone);
 
-        factory.initialize(address(i_addressesProvider), address(this), _factoryOwner, _yieldBarringToken, _principalToken);
-        factory.setFactoryOwner(_factoryOwner);
+        factory.initialize(address(i_addressesProvider), address(this), _yieldBarringToken, _principalToken);
         s_permittedFactory[address(factory)] = true;
+        s_factories.push(address(factory));
 
-        emit Router_Factory_Created(address(factory), _factoryOwner, _yieldBarringToken, _principalToken);
+        emit Router_Factory_Created(address(factory), _yieldBarringToken, _principalToken);
         return (factory);
     }
 
@@ -94,6 +99,23 @@ contract RouterFactoryController {
         _enforceWAD(_routerFeePercentage);
         s_routerFeePercentage = _routerFeePercentage;
         emit Router_Fee_Percentage_Updated(_routerFeePercentage);
+    }
+
+    // triggers all factories to route all yield from all active routers (chainlink automation recommended. if so remove onlyOwner)
+    function triggerYieldRouting() external onlyOwner {
+        if (s_factories.length == 0) revert NO_FACTORIES();
+
+        for (uint256 i = 0; i < s_factories.length; i++) {
+            address factoryAddress = RouterFactory(s_factories[i]).getFactoryAddress();
+            RouterFactory factory = RouterFactory(factoryAddress);
+            try factory.activateActiveRouters() {
+                emit Yield_Routed(factoryAddress);
+            } catch {
+                emit Router_Reverted(factoryAddress);
+            }
+        }
+
+        emit Active_Routers_Activated(s_factories.length);
     }
 
     // ======================= External Factory & Router Functions =======================
