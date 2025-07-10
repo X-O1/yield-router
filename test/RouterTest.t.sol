@@ -65,8 +65,8 @@ contract RouterTest is Test {
         factoryControllerAddress = factoryController.getFactoryControllerAddress();
         vm.stopPrank();
 
-        // dev deploys factory and permits USDC/aUSDC tokens
-        vm.startPrank(owner);
+        // controller deploys factory
+        vm.startPrank(factoryControllerAddress);
         routerFactory = factoryController.createRouterFactory(aUSDCAddress, usdcAddress);
         factoryAddress = routerFactory.getFactoryAddress();
         vm.stopPrank();
@@ -175,9 +175,9 @@ contract RouterTest is Test {
         vm.prank(owner);
         router.activateRouter(user);
 
-        // factory routes yield
-        vm.prank(factoryControllerAddress);
-        routerFactory.activateActiveRouters();
+        // triggers all factories to route all yield from all active routers
+        vm.prank(factoryControllerOwner);
+        factoryController.triggerYieldRouting();
 
         // check post-payout balances
         assertEq(router.getOwnerIndexAdjustedBalance(), 750e27);
@@ -208,9 +208,9 @@ contract RouterTest is Test {
         vm.prank(owner);
         router.activateRouter(user);
 
-        // factory routes yield
-        vm.prank(factoryControllerAddress);
-        routerFactory.activateActiveRouters();
+        // triggers all factories to route all yield from all active routers
+        vm.prank(factoryControllerOwner);
+        factoryController.triggerYieldRouting();
 
         // check balances after first partial payout
         assertEq(router.getOwnerIndexAdjustedBalance(), 833333333333333333333333333333);
@@ -225,9 +225,9 @@ contract RouterTest is Test {
         vm.prank(owner);
         mockPool.setLiquidityIndex(15e26);
 
-        // factory routes yield
-        vm.prank(factoryControllerAddress);
-        routerFactory.activateActiveRouters();
+        // triggers all factories to route all yield from all active routers
+        vm.prank(factoryControllerOwner);
+        factoryController.triggerYieldRouting();
 
         // check final balances
         assertEq(router.getOwnerIndexAdjustedBalance(), 666666666666666666666666666666);
