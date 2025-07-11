@@ -49,6 +49,15 @@ contract RouterFactory {
     address[] public s_activeRouters;
     // all routers created by this factory
     mapping(address router => bool isPermitted) private s_permittedRouter;
+    // all routers deployed by the same account
+    mapping(address account => address[] routers) public s_allAccountRouters;
+
+    // ======================= structs ======================
+
+    struct AccountRouters {
+        address account;
+        address[] routers;
+    }
 
     // ======================= Events =======================
 
@@ -131,7 +140,6 @@ contract RouterFactory {
                 emit Router_Reverted(routerAddress);
             }
         }
-
         emit Active_Routers_Activated(s_activeRouters.length);
     }
 
@@ -207,5 +215,10 @@ contract RouterFactory {
     // returns factory address
     function getFactoryAddress() external view returns (address factory) {
         return address(this);
+    }
+
+    // returns all routers created by address
+    function getAccountRouters(address _account) external view returns (address[] memory) {
+        return s_allAccountRouters[_account];
     }
 }
