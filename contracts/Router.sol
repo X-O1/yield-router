@@ -330,8 +330,8 @@ contract Router {
         uint256 currentIndex = uint256(s_aavePool.getReserveData(s_principalToken).liquidityIndex);
         require(currentIndex >= 1e27, INVALID_INDEX());
 
-        // Convert from RAY (1e27) → 1e6
-        return currentIndex / 1e21;
+        uint256 scaleFactor = 10 ** (27 - s_principalTokenDecimals);
+        return currentIndex / scaleFactor;
     }
 
     function _numDiv(uint256 _wholeNum, uint256 _partNum) private view returns (uint256) {

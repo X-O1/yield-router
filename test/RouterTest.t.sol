@@ -57,7 +57,7 @@ contract RouterTest is Test {
         aUSDCAddress = aUSDC.getAddress();
 
         // deploy mock pool with USDC and aUSDC addresses
-        mockPool = new MockPool(usdcAddress, aUSDCAddress);
+        mockPool = new MockPool(aUSDCAddress, usdcAddress);
         addressProvider = mockPool.getPool();
         usdc.mint(address(mockPool), 10000e6);
 
