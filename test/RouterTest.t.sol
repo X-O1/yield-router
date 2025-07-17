@@ -63,13 +63,13 @@ contract RouterTest is Test {
 
         // deploy factory controller
         vm.startPrank(factoryControllerOwner);
-        factoryController = new RouterFactoryController(addressProvider, 1e3);
+        factoryController = new RouterFactoryController(addressProvider);
         factoryControllerAddress = factoryController.getFactoryControllerAddress();
         vm.stopPrank();
 
         // controller deploys factory
         vm.startPrank(factoryControllerAddress);
-        routerFactory = factoryController.createRouterFactory(aUSDCAddress, usdcAddress);
+        routerFactory = factoryController.createRouterFactory(aUSDCAddress, usdcAddress, 1e3);
         factoryAddress = routerFactory.getFactoryAddress();
         vm.stopPrank();
 

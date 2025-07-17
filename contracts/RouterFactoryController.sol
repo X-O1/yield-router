@@ -21,11 +21,8 @@ contract RouterFactoryController {
 
     // logic contract address used for cloning factory instances
     address private s_implementation;
-    // fee taken from routed yield
-    uint256 private s_routerFeePercentage;
     // all factories deployed by this controller
     FactoryDetails[] private s_factories;
-
     // factories deployed by this controller
     mapping(address factory => bool isPermitted) private s_permittedFactory;
     // routers deployed by factories deployed by this controller
@@ -44,7 +41,6 @@ contract RouterFactoryController {
     // ======================= Events =======================
 
     event Router_Factory_Created(address indexed factory, address yieldToken, address principalToken);
-    event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
     event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
     event Yield_Routed(address indexed router);
     event Router_Reverted(address indexed router);
@@ -52,11 +48,10 @@ contract RouterFactoryController {
 
     // ======================= Constructor =======================
 
-    constructor(address _addressProvider, uint256 _startingRouterFeePercentage) {
+    constructor(address _addressProvider) {
         s_implementation = address(new RouterFactory());
         i_addressesProvider = IPoolAddressesProvider(_addressProvider);
         i_factoryControllerOwner = msg.sender;
-        s_routerFeePercentage = _startingRouterFeePercentage;
     }
 
     // ======================= Modifiers =======================
@@ -79,11 +74,15 @@ contract RouterFactoryController {
 
     // ======================= Factory Control =======================
 
-    function createRouterFactory(address _yieldBarringToken, address _principalToken) external returns (RouterFactory) {
+    function createRouterFactory(
+        address _yieldBarringToken,
+        address _principalToken,
+        uint256 _startingRouterFeePercentage
+    ) external returns (RouterFactory) {
         address clone = Clones.clone(s_implementation);
         RouterFactory factory = RouterFactory(clone);
 
-        factory.initialize(address(i_addressesProvider), address(this), _yieldBarringToken, _principalToken);
+        factory.initialize(address(i_addressesProvider), address(this), _yieldBarringToken, _principalToken, _startingRouterFeePercentage);
         s_permittedFactory[address(factory)] = true;
         s_factories.push(
             FactoryDetails({factoryAddress: address(factory), yieldBarringTokenAddress: _yieldBarringToken, principalTokenAddress: _principalToken})
@@ -102,12 +101,6 @@ contract RouterFactoryController {
 
         emit Fees_Withdrawn(msg.sender, _token, _amount);
         return _amount;
-    }
-
-    // updates router fee percentage
-    function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
-        s_routerFeePercentage = _routerFeePercentage * 1e6;
-        emit Router_Fee_Percentage_Updated(_routerFeePercentage);
     }
 
     // triggers all factories to route all yield from all active routers (chainlink automation recommended. if so remove onlyOwner)
@@ -144,11 +137,6 @@ contract RouterFactoryController {
     // returns fees collected for token
     function getCollectedFees(address _token) external view returns (uint256) {
         return s_feesCollected[_token];
-    }
-
-    // returns current router fee percentage
-    function getRouterFeePercentage() external view returns (uint256) {
-        return s_routerFeePercentage;
     }
 
     // returns this factory controller address

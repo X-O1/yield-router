@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
+import {ERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
 import {RouterFactoryController} from "../contracts/RouterFactoryController.sol";
 import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
@@ -42,10 +43,16 @@ contract RouterFactory {
     address private s_yieldBarringToken;
     // principal token address (e.g., USDC)
     address private s_principalToken;
+    // yield token decimals
+    uint256 public s_yieldTokenDecimals;
+    // principal token decimals
+    uint256 public s_principalTokenDecimals;
     // all routers deployed by this factory
     address[] public s_routers;
     // active routers ready for routing
     address[] public s_activeRouters;
+    // fee taken from routed yield
+    uint256 private s_routerFeePercentage;
     // all routers created by this factory
     mapping(address router => bool isPermitted) private s_permittedRouter;
     // all routers deployed by the same account
@@ -66,11 +73,18 @@ contract RouterFactory {
     event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
     event Yield_Routed(address indexed router);
     event Router_Reverted(address indexed router);
+    event Router_Fee_Percentage_Updated(uint256 newFeePercentage);
 
     // ======================= Initialization =======================
 
     // initializes the fractory with aave provider, starting fee percentage and token settings
-    function initialize(address _addressProvider, address _factoryController, address _yieldBarringToken, address _principalToken) external {
+    function initialize(
+        address _addressProvider,
+        address _factoryController,
+        address _yieldBarringToken,
+        address _principalToken,
+        uint256 _startingRouterFeePercentage
+    ) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
 
@@ -82,6 +96,9 @@ contract RouterFactory {
         s_factoryOwner = msg.sender;
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _principalToken;
+        s_yieldTokenDecimals = ERC20(_yieldBarringToken).decimals();
+        s_principalTokenDecimals = ERC20(s_principalToken).decimals();
+        s_routerFeePercentage = _startingRouterFeePercentage;
     }
 
     // sets the factory controller owner (only once)
@@ -108,13 +125,27 @@ contract RouterFactory {
 
     // ======================= Router Control =======================
 
+    // updates router fee percentage in factory token decimals (s_principalTokenDecimals)
+    function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
+        s_routerFeePercentage = _routerFeePercentage;
+        emit Router_Fee_Percentage_Updated(_routerFeePercentage);
+    }
+
     /// @notice deploys a new Router instance
     /// @return router the deployed Router instance
     function createRouter(address _owner, string memory _routerNickname) external returns (Router) {
         address clone = Clones.clone(s_implementation);
         Router router = Router(clone);
 
-        router.initialize(s_factoryControllerAddress, address(this), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
+        router.initialize(
+            s_factoryControllerAddress,
+            address(this),
+            address(s_addressesProvider),
+            s_yieldBarringToken,
+            s_principalToken,
+            s_yieldTokenDecimals,
+            s_principalTokenDecimals
+        );
         router.setOwner(_owner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
@@ -173,6 +204,11 @@ contract RouterFactory {
     }
 
     // ======================= View Functions =======================
+
+    // returns current router fee percentage
+    function getRouterFeePercentage() external view returns (uint256) {
+        return s_routerFeePercentage;
+    }
 
     // returns all routers
     function getAllRouters() external view returns (address[] memory) {

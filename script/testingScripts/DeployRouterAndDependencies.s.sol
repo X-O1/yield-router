@@ -15,8 +15,8 @@ contract DeployRouterAndDependencies is Script {
         MockAUSDC ausdc = new MockAUSDC();
         MockUSDC usdc = new MockUSDC();
         MockPool pool = new MockPool(address(ausdc), address(usdc));
-        RouterFactoryController controller = new RouterFactoryController(pool.getPool(), 1e3);
-        controller.createRouterFactory(address(ausdc), address(usdc));
+        RouterFactoryController controller = new RouterFactoryController(pool.getPool());
+        controller.createRouterFactory(address(ausdc), address(usdc), 1e3);
         vm.stopBroadcast();
     }
 }

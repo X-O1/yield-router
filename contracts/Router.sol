@@ -5,7 +5,6 @@ import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
 import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
-import {ERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
 import {RouterFactory} from "./RouterFactory.sol";
 import {RouterFactoryController} from "./RouterFactoryController.sol";
 import "./GlobalErrors.sol";
@@ -126,7 +125,9 @@ contract Router {
         address _routerFactoryAddress,
         address _addressProvider,
         address _yieldBarringToken,
-        address _principalToken
+        address _principalToken,
+        uint256 _yieldTokenDecimals,
+        uint256 _principalTokenDecimals
     ) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
@@ -139,8 +140,8 @@ contract Router {
         s_aavePool = IPool(s_addressesProvider.getPool());
         s_yieldBarringToken = _yieldBarringToken;
         s_principalToken = _principalToken;
-        s_yieldTokenDecimals = ERC20(_yieldBarringToken).decimals();
-        s_principalTokenDecimals = ERC20(s_principalToken).decimals();
+        s_yieldTokenDecimals = _yieldTokenDecimals;
+        s_principalTokenDecimals = _principalTokenDecimals;
     }
 
     // sets the router's owner (only once)
@@ -316,7 +317,7 @@ contract Router {
 
     // get current router fee from factory
     function _getCurrentRouterFeePercentage() private view returns (uint256) {
-        uint256 routerfee = s_factoryController.getRouterFeePercentage();
+        uint256 routerfee = s_routerFactory.getRouterFeePercentage();
         return routerfee;
     }
 
