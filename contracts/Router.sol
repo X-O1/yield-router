@@ -5,6 +5,7 @@ import {IPool} from "@aave-v3-core/interfaces/IPool.sol";
 import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesProvider.sol";
 import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
 import {RouterFactory} from "./RouterFactory.sol";
 import {RouterFactoryController} from "./RouterFactoryController.sol";
 import "./GlobalErrors.sol";
@@ -29,11 +30,14 @@ contract Router {
     IPoolAddressesProvider private s_addressesProvider;
     // yield-bearing token address (e.g., aUSDC)
     address private s_yieldBarringToken;
+    // yield token decimals
+    uint256 public s_yieldTokenDecimals;
     // principal token address (e.g., USDC)
     address private s_principalToken;
+    // principal token decimals
+    uint256 public s_principalTokenDecimals;
     // router owner
     address private s_routerOwner;
-
     // router factory instance
     RouterFactory private s_routerFactory;
     // factory address
@@ -48,6 +52,9 @@ contract Router {
     bool private s_initialized;
     // current state of router
     RouterStatus private s_routerStatus;
+    // Ray units
+    uint256 private constant RAY = 1e27;
+
     // maps owner to their balances
     mapping(address owner => OwnerBalances) public s_ownerBalances;
     // maps each address granted router access to their yield allowance limit and tracks how much yield they’ve recieved.
@@ -57,14 +64,15 @@ contract Router {
 
     // balances for owner
     struct OwnerBalances {
-        uint256 principalBalance; // ray (1e27)
+        uint256 yieldTokenBalance;
         uint256 indexAdjustedBalance; // ray (1e27)
-        uint256 principalYield; // ray (1e27)
+        uint256 principalBalance; // ray (1e27)
+        uint256 yield; // ray (1e27)
     }
     // status and withdrawn balances of addresses granted router access
     struct RouterAccessRecords {
         bool grantedYieldAccess;
-        uint256 principalYieldAllowance; // (in prinicipal value e.g., USDC) (ray (1e27))
+        uint256 yieldAllowance; // (in prinicipal value e.g., USDC) (ray (1e27))
     }
     // status of router
     struct RouterStatus {
@@ -118,7 +126,7 @@ contract Router {
         address _routerFactoryAddress,
         address _addressProvider,
         address _yieldBarringToken,
-        address _prinicalToken
+        address _principalToken
     ) external {
         if (s_initialized) revert ALREADY_INITIALIZED();
         s_initialized = true;
@@ -130,7 +138,9 @@ contract Router {
         s_addressesProvider = IPoolAddressesProvider(_addressProvider);
         s_aavePool = IPool(s_addressesProvider.getPool());
         s_yieldBarringToken = _yieldBarringToken;
-        s_principalToken = _prinicalToken;
+        s_principalToken = _principalToken;
+        s_yieldTokenDecimals = ERC20(_yieldBarringToken).decimals();
+        s_principalTokenDecimals = ERC20(s_principalToken).decimals();
     }
 
     // sets the router's owner (only once)
@@ -144,22 +154,15 @@ contract Router {
     // ======================= Access Control =======================
 
     // grants or revokes yield access and sets the yield allowance for an address
-    function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _principalYieldAllowance) external onlyOwner {
-        _enforceWAD(_principalYieldAllowance);
-
+    function manageRouterAccess(address _account, bool _grantedYieldAccess, uint256 _yieldAllowance) external onlyOwner {
         if (_grantedYieldAccess) {
             if (s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_GRANTED();
         }
-
         if (!_grantedYieldAccess) {
             if (!s_routerAccessRecords[_account].grantedYieldAccess) revert ACCESS_ALREADY_NOT_GRANTED();
         }
-
         _grantedYieldAccess ? s_routerAccessRecords[_account].grantedYieldAccess = true : s_routerAccessRecords[_account].grantedYieldAccess = false;
-
-        _grantedYieldAccess
-            ? s_routerAccessRecords[_account].principalYieldAllowance = _wadToRay(_principalYieldAllowance)
-            : s_routerAccessRecords[_account].principalYieldAllowance = 0;
+        _grantedYieldAccess ? s_routerAccessRecords[_account].yieldAllowance = _yieldAllowance : s_routerAccessRecords[_account].yieldAllowance = 0;
     }
 
     // ======================= Router Control =======================
@@ -190,82 +193,88 @@ contract Router {
     // routes available yield to the destination address and charges a router fee
     function routeYield() external ifRouterDestinationIsSet ifRouterActive onlyFactory returns (uint256) {
         uint256 index = _getLiquidityIndex();
-        uint256 principalYield = _updatePrincipalYield(index);
-        if (principalYield == 0) revert NO_YIELD();
+        uint256 yield = _updateYield(index);
+        if (yield == 0) revert NO_YIELD();
 
         address destination = s_routerStatus.currentDestination;
-        uint256 principalYieldAllowance = s_routerAccessRecords[destination].principalYieldAllowance;
+        uint256 yieldAllowance = s_routerAccessRecords[destination].yieldAllowance;
 
-        uint256 indexAdjustedPrincipalYield = principalYield.rayDiv(index);
-        uint256 indexAdjustedPrincipalYieldAllowance = principalYieldAllowance.rayDiv(index);
+        uint256 indexAdjustedYield = _numDiv(yield, index);
+        uint256 indexAdjustedAllowance = _numDiv(yieldAllowance, index);
 
-        uint256 finalPrincipalYieldRouteAmount;
-        uint256 finalIndexAdjustedRouteAmount;
+        uint256 yieldRouteAmount;
+        uint256 indexAdjustedRouteAmount;
 
-        if (principalYieldAllowance <= principalYield) {
-            finalPrincipalYieldRouteAmount = principalYieldAllowance;
-            finalIndexAdjustedRouteAmount = indexAdjustedPrincipalYieldAllowance;
-            s_routerAccessRecords[destination].principalYieldAllowance = 0;
+        if (yieldAllowance <= yield) {
+            yieldRouteAmount = yieldAllowance;
+            indexAdjustedRouteAmount = indexAdjustedAllowance;
+            s_routerAccessRecords[destination].yieldAllowance = 0;
         } else {
-            finalPrincipalYieldRouteAmount = principalYield;
-            finalIndexAdjustedRouteAmount = indexAdjustedPrincipalYield;
-            s_routerAccessRecords[destination].principalYieldAllowance -= finalPrincipalYieldRouteAmount;
+            yieldRouteAmount = yield;
+            indexAdjustedRouteAmount = indexAdjustedYield;
+            s_routerAccessRecords[destination].yieldAllowance -= yieldRouteAmount;
         }
 
-        s_ownerBalances[s_routerOwner].principalYield -= finalPrincipalYieldRouteAmount;
-        s_ownerBalances[s_routerOwner].indexAdjustedBalance -= finalIndexAdjustedRouteAmount;
+        s_ownerBalances[s_routerOwner].yield -= yieldRouteAmount;
+        s_ownerBalances[s_routerOwner].indexAdjustedBalance -= indexAdjustedRouteAmount;
 
         // updates router status based on updated destination's yield allowance
         _updateRouterStatus(destination);
 
-        uint256 routerFee = _calculateFee(finalIndexAdjustedRouteAmount);
-        uint256 routeAmountAfterFee = finalIndexAdjustedRouteAmount - routerFee;
+        uint256 routerFee = _calculateFee(yieldRouteAmount);
+        if (yieldRouteAmount < routerFee) revert OVERFLOW_UNDERFLOW();
+        uint256 routeAmountAfterFee = yieldRouteAmount - routerFee;
+        uint256 poolWithdrawAmount = yieldRouteAmount;
 
-        uint256 wadRouterFee = _rayToWad(routerFee);
-        uint256 wadFinalRouteAmountAfterFee = _rayToWad(routeAmountAfterFee);
+        // WITHDRAW FROM AAVE AND SEND USDC
+        if (s_aavePool.withdraw(s_principalToken, poolWithdrawAmount, address(this)) != poolWithdrawAmount) {
+            revert POOL_WITHDRAW_FAILED();
+        }
 
-        if (!IERC20(s_yieldBarringToken).transfer(s_factoryControllerAddress, wadRouterFee)) revert WITHDRAW_FAILED();
-        if (!IERC20(s_yieldBarringToken).transfer(destination, wadFinalRouteAmountAfterFee)) revert WITHDRAW_FAILED();
+        if (!IERC20(s_principalToken).transfer(s_factoryControllerAddress, routerFee)) revert FEE_TRANSFER_FAILED();
+        if (!IERC20(s_principalToken).transfer(destination, routeAmountAfterFee)) revert YIELD_TRANSFER_FAILED();
 
-        s_factoryController.addFees(s_yieldBarringToken, routerFee);
+        s_factoryController.addFees(s_principalToken, routerFee);
 
-        emit Yield_Routed(destination, wadFinalRouteAmountAfterFee, wadRouterFee);
-        return (wadFinalRouteAmountAfterFee);
+        emit Yield_Routed(destination, routeAmountAfterFee, routerFee);
+        return (routeAmountAfterFee);
     }
 
     // ======================= Deposit & Withdraw =======================
 
     // deposits yield-bearing token into router and updates internal balances
-    function deposit(address _yieldBarringToken, uint256 _amountInPrincipalValue) external onlyOwner returns (uint256) {
-        _enforceWAD(_amountInPrincipalValue);
-        if (_yieldBarringToken != s_yieldBarringToken) revert TOKEN_NOT_PERMITTED();
-        uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
+    function deposit(uint256 _yieldTokenAmount) external onlyOwner returns (uint256) {
+        uint256 index = _getLiquidityIndex();
+        uint256 indexAdjustedAmount = _numDiv(_yieldTokenAmount, index);
+        uint256 principalAmount = _numMul(_yieldTokenAmount, index);
 
-        if (indexAdjustedPrincipalAmount > IERC20(_yieldBarringToken).allowance(msg.sender, address(this))) revert TOKEN_ALLOWANCE();
-        if (!IERC20(_yieldBarringToken).transferFrom(msg.sender, address(this), _rayToWad(indexAdjustedPrincipalAmount))) revert DEPOSIT_FAILED();
+        if (_yieldTokenAmount > IERC20(s_yieldBarringToken).allowance(msg.sender, address(this))) revert TOKEN_ALLOWANCE();
+        if (!IERC20(s_yieldBarringToken).transferFrom(msg.sender, address(this), _yieldTokenAmount)) revert DEPOSIT_FAILED();
 
-        s_ownerBalances[msg.sender].indexAdjustedBalance += indexAdjustedPrincipalAmount;
-        s_ownerBalances[msg.sender].principalBalance += _wadToRay(_amountInPrincipalValue);
+        s_ownerBalances[msg.sender].yieldTokenBalance += _yieldTokenAmount;
+        s_ownerBalances[msg.sender].indexAdjustedBalance += indexAdjustedAmount;
+        s_ownerBalances[msg.sender].principalBalance += principalAmount;
 
-        emit Deposit(msg.sender, _yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
-        return _rayToWad(indexAdjustedPrincipalAmount);
+        emit Deposit(msg.sender, s_yieldBarringToken, _yieldTokenAmount);
+        return _yieldTokenAmount;
     }
 
     // withdraws specified principal amount if router is inactive and unlocked
-    function withdraw(uint256 _amountInPrincipalValue) external onlyOwner ifRouterNotActive returns (uint256) {
-        _enforceWAD(_amountInPrincipalValue);
-        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_routerOwner].indexAdjustedBalance;
-        uint256 indexAdjustedPrincipalAmount = _wadToRay(_amountInPrincipalValue).rayDiv(_getLiquidityIndex());
+    function withdraw(uint256 _yieldTokenAmount) external onlyOwner ifRouterNotActive returns (uint256) {
+        uint256 yieldTokenBalance = s_ownerBalances[s_routerOwner].yieldTokenBalance;
+        uint256 indexAdjustedAmount = _numDiv(_yieldTokenAmount, _getLiquidityIndex());
+        uint256 principalAmount = _numMul(_yieldTokenAmount, _getLiquidityIndex());
 
-        if (indexAdjustedPrincipalAmount > currentIndexAdjustedBalance) revert INSUFFICIENT_BALANCE();
+        if (_yieldTokenAmount > yieldTokenBalance) revert INSUFFICIENT_BALANCE();
 
-        s_ownerBalances[msg.sender].indexAdjustedBalance -= indexAdjustedPrincipalAmount;
-        s_ownerBalances[msg.sender].principalBalance -= _wadToRay(_amountInPrincipalValue);
+        s_ownerBalances[msg.sender].yieldTokenBalance -= _yieldTokenAmount;
+        s_ownerBalances[msg.sender].indexAdjustedBalance -= indexAdjustedAmount;
+        s_ownerBalances[msg.sender].principalBalance -= principalAmount;
 
-        if (!IERC20(s_yieldBarringToken).transfer(msg.sender, _rayToWad(indexAdjustedPrincipalAmount))) revert WITHDRAW_FAILED();
+        if (!IERC20(s_yieldBarringToken).transfer(msg.sender, _yieldTokenAmount)) revert WITHDRAW_FAILED();
 
-        emit Withdraw(msg.sender, s_yieldBarringToken, _rayToWad(indexAdjustedPrincipalAmount));
-        return _rayToWad(indexAdjustedPrincipalAmount);
+        emit Withdraw(msg.sender, s_yieldBarringToken, _yieldTokenAmount);
+        return _yieldTokenAmount;
     }
 
     // ======================= Private Helpers =======================
@@ -281,7 +290,7 @@ contract Router {
 
     // helper for `activateRouter()` to update router status based on updated destination's yield allowance
     function _updateRouterStatus(address _destination) private {
-        uint256 updatedRayRemainingYieldAllowance = s_routerAccessRecords[_destination].principalYieldAllowance;
+        uint256 updatedRayRemainingYieldAllowance = s_routerAccessRecords[_destination].yieldAllowance;
 
         if (updatedRayRemainingYieldAllowance == 0) {
             if (s_routerStatus.isActive) {
@@ -293,55 +302,46 @@ contract Router {
     }
 
     // calculates how much yield has accured since deposit
-    function _updatePrincipalYield(uint256 _currentIndex) private returns (uint256) {
-        uint256 currentIndexAdjustedBalance = s_ownerBalances[s_routerOwner].indexAdjustedBalance;
-        uint256 newPricipalBalance = currentIndexAdjustedBalance.rayMul(_currentIndex);
+    function _updateYield(uint256 _currentIndex) private returns (uint256) {
+        uint256 indexAdjustedBalance = s_ownerBalances[s_routerOwner].indexAdjustedBalance;
+        uint256 principalBalance = s_ownerBalances[s_routerOwner].principalBalance;
+        uint256 newPricipalBalance = _numMul(indexAdjustedBalance, _currentIndex);
 
-        uint256 currentPricipalBalance = s_ownerBalances[s_routerOwner].principalBalance;
-
-        if (newPricipalBalance > currentPricipalBalance) {
-            uint256 newYield = newPricipalBalance - currentPricipalBalance;
-            s_ownerBalances[s_routerOwner].principalYield = newYield;
+        if (newPricipalBalance > principalBalance) {
+            uint256 yield = newPricipalBalance - principalBalance;
+            s_ownerBalances[s_routerOwner].yield = yield;
         }
-        return s_ownerBalances[s_routerOwner].principalYield;
+        return s_ownerBalances[s_routerOwner].yield;
     }
 
     // get current router fee from factory
     function _getCurrentRouterFeePercentage() private view returns (uint256) {
-        uint256 wadRouterfee = s_factoryController.getRouterFeePercentage();
-
-        return _wadToRay(wadRouterfee);
+        uint256 routerfee = s_factoryController.getRouterFeePercentage();
+        return routerfee;
     }
 
     function _calculateFee(uint256 _amountBeingRouted) private view returns (uint256) {
         uint256 currentFeePercentage = _getCurrentRouterFeePercentage();
-        return _amountBeingRouted.rayMul(currentFeePercentage);
+        return _numMul(_amountBeingRouted, currentFeePercentage);
     }
 
     // fetches aave's v3 pool's current liquidity index
     function _getLiquidityIndex() private view returns (uint256) {
         uint256 currentIndex = uint256(s_aavePool.getReserveData(s_principalToken).liquidityIndex);
-        if (currentIndex < 1e27) revert INVALID_INDEX();
-        return currentIndex;
+        require(currentIndex >= 1e27, INVALID_INDEX());
+
+        // Convert from RAY (1e27) → 1e6
+        return currentIndex / 1e21;
     }
 
-    // reverts if input is not WAD units
-    function _enforceWAD(uint256 _amount) private pure {
-        if (_amount > 0) {
-            if (_amount < 1e15 || _amount > 1e30) {
-                revert INPUT_MUST_BE_IN_WAD_UNITS();
-            }
-        }
+    function _numDiv(uint256 _wholeNum, uint256 _partNum) private view returns (uint256) {
+        require(_partNum != 0, MUST_BE_GREATER_THAN_0());
+        return (_wholeNum * (10 ** s_principalTokenDecimals)) / _partNum;
     }
 
-    // converts WAD units (1e18) into RAY units (1e27)
-    function _wadToRay(uint256 _num) private pure returns (uint256) {
-        return _num * 1e9;
-    }
-
-    // converts RAY units (1e27) into WAD units (1e18)
-    function _rayToWad(uint256 _num) private pure returns (uint256) {
-        return _num / 1e9;
+    function _numMul(uint256 _wholeNum, uint256 _partNum) private view returns (uint256) {
+        require(_partNum != 0, MUST_BE_GREATER_THAN_0());
+        return (_wholeNum * _partNum) / (10 ** s_principalTokenDecimals);
     }
 
     // ======================= View Functions =======================
@@ -367,17 +367,17 @@ contract Router {
     }
 
     // return owner's index-adjusted yield (ray)
-    function getOwnerPrincipalYield() external view returns (uint256) {
-        return s_ownerBalances[s_routerOwner].principalYield;
+    function getOwnerYield() external view returns (uint256) {
+        return s_ownerBalances[s_routerOwner].yield;
     }
 
     // return address's current yield allowance (prinicipal value e.g., USDC) (ray)
-    function getYieldAllowanceInPrincipalValue(address _address) external view returns (uint256) {
-        return s_routerAccessRecords[_address].principalYieldAllowance;
+    function getYieldAllowance(address _address) external view returns (uint256) {
+        return s_routerAccessRecords[_address].yieldAllowance;
     }
 
     // return owner's deposit principal (ray)
-    function getOwnerPrincipalValue() external view returns (uint256) {
+    function getOwnerPrincipalBalance() external view returns (uint256) {
         return s_ownerBalances[s_routerOwner].principalBalance;
     }
 
@@ -404,6 +404,6 @@ contract Router {
     // get the principal value of routers yield barring token balance
     function getRouterBalancePrincipalValue() external view returns (uint256) {
         uint256 yieldTokensBalance = IERC20(s_yieldBarringToken).balanceOf(address(this));
-        return yieldTokensBalance.rayMul(_getLiquidityIndex());
+        return _numDiv(yieldTokensBalance, _getLiquidityIndex());
     }
 }

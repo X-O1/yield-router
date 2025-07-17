@@ -10,16 +10,13 @@ import {Router} from "../../contracts/Router.sol";
 import {Script} from "forge-std/Script.sol";
 
 contract DeployRouterAndDependencies is Script {
-    function run() external returns (Router) {
+    function run() external {
         vm.startBroadcast();
         MockAUSDC ausdc = new MockAUSDC();
         MockUSDC usdc = new MockUSDC();
         MockPool pool = new MockPool(address(ausdc), address(usdc));
-        RouterFactoryController controller = new RouterFactoryController(pool.getPool(), 1e15);
-        RouterFactory factory = controller.createRouterFactory(address(ausdc), address(usdc));
-        Router router = factory.createRouter();
+        RouterFactoryController controller = new RouterFactoryController(pool.getPool(), 1e3);
+        controller.createRouterFactory(address(ausdc), address(usdc));
         vm.stopBroadcast();
-
-        return router;
     }
 }

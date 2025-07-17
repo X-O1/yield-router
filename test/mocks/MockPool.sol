@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {MockUSDC} from "../mocks/MockUSDC.sol";
 import {MockAUSDC} from "../mocks/MockAUSDC.sol";
 import {WadRayMath} from "@aave-v3-core/protocol/libraries/math/WadRayMath.sol";
+import "../../contracts/GlobalErrors.sol";
 
 contract MockPool {
     using WadRayMath for uint256;
@@ -48,32 +49,12 @@ contract MockPool {
     }
 
     struct ReserveConfigurationMap {
-        //bit 0-15: LTV
-        //bit 16-31: Liq. threshold
-        //bit 32-47: Liq. bonus
-        //bit 48-55: Decimals
-        //bit 56: reserve is active
-        //bit 57: reserve is frozen
-        //bit 58: borrowing is enabled
-        //bit 59: stable rate borrowing enabled
-        //bit 60: asset is paused
-        //bit 61: borrowing in isolation mode is enabled
-        //bit 62: siloed borrowing enabled
-        //bit 63: flashloaning enabled
-        //bit 64-79: reserve factor
-        //bit 80-115 borrow cap in whole tokens, borrowCap == 0 => no cap
-        //bit 116-151 supply cap in whole tokens, supplyCap == 0 => no cap
-        //bit 152-167 liquidation protocol fee
-        //bit 168-175 eMode category
-        //bit 176-211 unbacked mint cap in whole tokens, unbackedMintCap == 0 => minting disabled
-        //bit 212-251 debt ceiling for isolation mode with (ReserveConfiguration::DEBT_CEILING_DECIMALS) decimals
-        //bit 252-255 unused
         uint256 data;
     }
 
-    constructor(address usdcAddress, address ausdcAddress) {
-        usdc = MockUSDC(usdcAddress);
+    constructor(address ausdcAddress, address usdcAddress) {
         aUSDC = MockAUSDC(ausdcAddress);
+        usdc = MockUSDC(usdcAddress);
         setLiquidityIndex(1e27);
     }
 
@@ -97,7 +78,7 @@ contract MockPool {
                 currentVariableBorrowRate: 0,
                 currentStableBorrowRate: 0,
                 lastUpdateTimestamp: uint40(block.timestamp),
-                aTokenAddress: address(0),
+                aTokenAddress: address(aUSDC),
                 stableDebtTokenAddress: address(0),
                 variableDebtTokenAddress: address(0),
                 interestRateStrategyAddress: address(0),
@@ -108,25 +89,12 @@ contract MockPool {
             });
     }
 
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 /*referralCode*/) external {
-        uint256 index = liquidityIndex[asset];
-        require(index > 0, "Index not set");
-
-        uint256 scaledAmount = _wadToRay(amount).rayDiv(index);
-        scaledBalances[asset][onBehalfOf] += scaledAmount;
-
-        usdc.transferFrom(msg.sender, address(this), amount);
-        aUSDC.mint(onBehalfOf, amount);
-    }
-
     function withdraw(address asset, uint256 amount, address to) external returns (uint256) {
         uint256 index = liquidityIndex[asset];
         require(index > 0, "Index not set");
 
-        uint256 scaledAmount = amount.rayDiv(index);
+        uint256 scaledAmount = _numDiv(amount, index);
         uint256 aUSDCAmountToBurn = scaledAmount;
-        require(scaledBalances[asset][msg.sender] >= scaledAmount, "Insufficient balance");
-        scaledBalances[asset][msg.sender] -= scaledAmount;
 
         aUSDC.burn(msg.sender, aUSDCAmountToBurn);
         usdc.transfer(to, amount);
@@ -145,13 +113,22 @@ contract MockPool {
         return address(this);
     }
 
-    // converts number to RAY units (1e27)
-    function _wadToRay(uint256 _num) private pure returns (uint256) {
-        return _num * 1e9;
+    function _convertDecimals(uint256 amount, uint256 fromDecimals, uint256 toDecimals) internal pure returns (uint256) {
+        if (fromDecimals == toDecimals) return amount;
+        if (fromDecimals < toDecimals) {
+            return amount * 10 ** (toDecimals - fromDecimals);
+        } else {
+            return amount / 10 ** (fromDecimals - toDecimals);
+        }
     }
 
-    // converts number from RAY units (1e27) to WAD units (1e18)
-    function _rayToWad(uint256 _num) private pure returns (uint256) {
-        return _num / 1e9;
+    function _numDiv(uint256 _wholeNum, uint256 _partNum) private pure returns (uint256) {
+        require(_wholeNum != 0, MUST_BE_GREATER_THAN_0());
+        return _wholeNum / _partNum;
+    }
+
+    function _numMul(uint256 _wholeNum, uint256 _partNum) private pure returns (uint256) {
+        require(_wholeNum != 0, MUST_BE_GREATER_THAN_0());
+        return _wholeNum * _partNum;
     }
 }

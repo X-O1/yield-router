@@ -21,10 +21,10 @@ contract RouterFactoryController {
 
     // logic contract address used for cloning factory instances
     address private s_implementation;
-    // fee taken from routed yield (wad format, e.g. 1e15 = 0.1%)
+    // fee taken from routed yield
     uint256 private s_routerFeePercentage;
     // all factories deployed by this controller
-    address[] private s_factories;
+    FactoryDetails[] private s_factories;
 
     // factories deployed by this controller
     mapping(address factory => bool isPermitted) private s_permittedFactory;
@@ -32,6 +32,14 @@ contract RouterFactoryController {
     mapping(address router => bool isPermitted) private s_permittedRouter;
     // accumulated fees per token
     mapping(address token => uint256 amount) public s_feesCollected;
+
+    // ======================= Structs =======================
+
+    struct FactoryDetails {
+        address factoryAddress;
+        address yieldBarringTokenAddress;
+        address principalTokenAddress;
+    }
 
     // ======================= Events =======================
 
@@ -77,7 +85,9 @@ contract RouterFactoryController {
 
         factory.initialize(address(i_addressesProvider), address(this), _yieldBarringToken, _principalToken);
         s_permittedFactory[address(factory)] = true;
-        s_factories.push(address(factory));
+        s_factories.push(
+            FactoryDetails({factoryAddress: address(factory), yieldBarringTokenAddress: _yieldBarringToken, principalTokenAddress: _principalToken})
+        );
 
         emit Router_Factory_Created(address(factory), _yieldBarringToken, _principalToken);
         return (factory);
@@ -96,8 +106,7 @@ contract RouterFactoryController {
 
     // updates router fee percentage
     function setRouterFeePercentage(uint256 _routerFeePercentage) external onlyOwner {
-        _enforceWAD(_routerFeePercentage);
-        s_routerFeePercentage = _routerFeePercentage;
+        s_routerFeePercentage = _routerFeePercentage * 1e6;
         emit Router_Fee_Percentage_Updated(_routerFeePercentage);
     }
 
@@ -106,7 +115,7 @@ contract RouterFactoryController {
         if (s_factories.length == 0) revert NO_FACTORIES();
 
         for (uint256 i = 0; i < s_factories.length; i++) {
-            address factoryAddress = RouterFactory(s_factories[i]).getFactoryAddress();
+            address factoryAddress = RouterFactory(s_factories[i].factoryAddress).getFactoryAddress();
             RouterFactory factory = RouterFactory(factoryAddress);
             try factory.activateActiveRouters() {
                 emit Yield_Routed(factoryAddress);
@@ -130,15 +139,6 @@ contract RouterFactoryController {
         s_permittedRouter[_address] = true;
     }
 
-    // ======================= Private Helpers =======================
-
-    // checks for valid wad input
-    function _enforceWAD(uint256 _amount) private pure {
-        if (_amount < 1e15 || _amount > 1e30) {
-            revert INPUT_MUST_BE_IN_WAD_UNITS();
-        }
-    }
-
     // ======================= View Functions =======================
 
     // returns fees collected for token
@@ -154,5 +154,10 @@ contract RouterFactoryController {
     // returns this factory controller address
     function getFactoryControllerAddress() external view returns (address) {
         return address(this);
+    }
+
+    // return all factories created by this controller
+    function getFactories() external view returns (FactoryDetails[] memory) {
+        return s_factories;
     }
 }

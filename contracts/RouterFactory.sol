@@ -6,7 +6,6 @@ import {IPoolAddressesProvider} from "@aave-v3-core/interfaces/IPoolAddressesPro
 import {RouterFactoryController} from "../contracts/RouterFactoryController.sol";
 import {Router} from "./Router.sol";
 import {Clones} from "@openzeppelin/proxy/Clones.sol";
-import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import "./GlobalErrors.sol";
 
 /**
@@ -50,19 +49,18 @@ contract RouterFactory {
     // all routers created by this factory
     mapping(address router => bool isPermitted) private s_permittedRouter;
     // all routers deployed by the same account
-    mapping(address account => address[] routers) public s_allAccountRouters;
+    mapping(address account => RouterDetails[] routers) public s_allAccountRouters;
 
     // ======================= structs ======================
-
-    struct AccountRouters {
-        address account;
-        address[] routers;
+    struct RouterDetails {
+        address routerAddress;
+        address tokenAddress;
+        string routerNickname;
     }
-
     // ======================= Events =======================
 
     event Active_Routers_Activated(uint256 numberOfRouters);
-    event Router_Created(address indexed router, address indexed owner, address yieldToken, address principalToken);
+    event Router_Created(address indexed routerAddress, address indexed yieldToken, string routerNickname, address owner);
     event Router_Activated(address indexed router);
     event Router_Deactivated(address indexed router);
     event Fees_Withdrawn(address indexed recipient, address indexed token, uint256 amount);
@@ -112,17 +110,20 @@ contract RouterFactory {
 
     /// @notice deploys a new Router instance
     /// @return router the deployed Router instance
-    function createRouter() external returns (Router) {
+    function createRouter(address _owner, string memory _routerNickname) external returns (Router) {
         address clone = Clones.clone(s_implementation);
         Router router = Router(clone);
 
         router.initialize(s_factoryControllerAddress, address(this), address(s_addressesProvider), s_yieldBarringToken, s_principalToken);
-        router.setOwner(msg.sender);
+        router.setOwner(_owner);
         s_routers.push(address(router));
         s_permittedRouter[address(router)] = true;
         s_factoryController.addRouter(address(router));
+        s_allAccountRouters[_owner].push(
+            RouterDetails({routerAddress: address(router), tokenAddress: s_yieldBarringToken, routerNickname: _routerNickname})
+        );
 
-        emit Router_Created(address(router), msg.sender, s_yieldBarringToken, s_principalToken);
+        emit Router_Created(address(router), address(s_yieldBarringToken), string(_routerNickname), _owner);
         return (router);
     }
 
@@ -171,15 +172,6 @@ contract RouterFactory {
         emit Router_Deactivated(_router);
     }
 
-    // ======================= Private Helpers =======================
-
-    // checks for valid wad input
-    function _enforceWAD(uint256 _amount) private pure {
-        if (_amount < 1e15 || _amount > 1e30) {
-            revert INPUT_MUST_BE_IN_WAD_UNITS();
-        }
-    }
-
     // ======================= View Functions =======================
 
     // returns all routers
@@ -218,7 +210,11 @@ contract RouterFactory {
     }
 
     // returns all routers created by address
-    function getAccountRouters(address _account) external view returns (address[] memory) {
+    function getAccountRouters(address _account) external view returns (RouterDetails[] memory) {
         return s_allAccountRouters[_account];
+    }
+
+    function getYieldBearingToken() external view returns (address) {
+        return s_yieldBarringToken;
     }
 }

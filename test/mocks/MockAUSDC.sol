@@ -21,4 +21,8 @@ contract MockAUSDC is ERC20 {
     function getAddress() external view returns (address) {
         return address(this);
     }
+
+    function symbol() public pure override returns (string memory) {
+        return "aUSDC";
+    }
 }
